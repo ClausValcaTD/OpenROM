@@ -1,0 +1,7 @@
+customtkinter>=5.2.0
+pillow>=10.0.0
+darkdetect>=0.8.0
+psutil>=5.9.0
+send2trash>=1.8.2
+packaging>=23.0
+tkinterdnd2>=0.3.0
