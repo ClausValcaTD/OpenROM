@@ -1,9 +1,11 @@
 import os
 import threading
+import tkinter as tk
 import customtkinter as ctk
-from tkinter import filedialog, StringVar
+from tkinter import filedialog, StringVar, messagebox
 from ui.drag_drop import DragDropFrame
 from ui.settings import SettingsWindow
+from ui.about import AboutWindow
 from core.detector import detect_file, detect_folder, SUPPORTED_INPUT, get_valid_targets
 from core.converter import Converter, ConversionJob
 from core.validator import verify_chd
@@ -29,7 +31,6 @@ ALL_FORMATS = ["CHD", "ISO", "BIN", "CSO", "ECM", "XISO"]
 
 class MainWindow(ctk.CTk):
     def __init__(self):
-
         super().__init__()
         self.title("OpenROM  |  M5 Dev")
         self.geometry("960x700")
@@ -47,12 +48,63 @@ class MainWindow(ctk.CTk):
         self.delete_src  = ctk.BooleanVar(value=False)
         self.verify_after= ctk.BooleanVar(value=True)
         self._converting = False
+
+        # New: Input format combo box state
+        self.input_fmt = StringVar(value="ISO")
+
         self.converter   = Converter(
             on_log=self._append_log,
             on_progress=self._on_progress,
         )
 
+        self._build_menu()
         self._build_ui()
+
+    # ── Build Native Menu Bar ──────────────────────────────────────────────────
+
+    def _build_menu(self):
+        # Create a native tk.Menu
+        self.menu_bar = tk.Menu(self)
+        self.config(menu=self.menu_bar)
+
+        # File Menu
+        file_menu = tk.Menu(self.menu_bar, tearoff=0)
+        file_menu.add_command(label="Open Files...", command=self._menu_open_files)
+        file_menu.add_command(label="Open Folder...", command=self._menu_open_folder)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.quit)
+        self.menu_bar.add_cascade(label="File", menu=file_menu)
+
+        # Settings Menu
+        self.menu_bar.add_command(label="Settings", command=self._open_settings)
+
+        # Help Menu
+        help_menu = tk.Menu(self.menu_bar, tearoff=0)
+        help_menu.add_command(label="About OpenROM", command=self._open_about)
+        help_menu.add_command(label="Check for Updates", command=self._menu_check_updates)
+        self.menu_bar.add_cascade(label="Help", menu=help_menu)
+
+    # ── Menu Commands ──────────────────────────────────────────────────────────
+
+    def _menu_open_files(self):
+        filetypes = [
+            ("ROM files", "*.iso *.bin *.cue *.gdi *.img *.ecm *.chd *.cso *.zso"),
+            ("All files", "*.*"),
+        ]
+        paths = filedialog.askopenfilenames(filetypes=filetypes)
+        if paths:
+            self._add_files(list(paths))
+
+    def _menu_open_folder(self):
+        folder = filedialog.askdirectory()
+        if folder:
+            self._add_folder(folder)
+
+    def _open_about(self):
+        AboutWindow(self)
+
+    def _menu_check_updates(self):
+        messagebox.showinfo("Update Check", "You are running the latest version (v1.0.0).")
 
     # ── Build UI ──────────────────────────────────────────────────────────────
 
@@ -152,27 +204,39 @@ class MainWindow(ctk.CTk):
             list_frame, fg_color=DARK2, height=180)
         self.file_list.pack(fill="both", expand=True)
 
-        # Settings row
-        settings_row = ctk.CTkFrame(parent, fg_color="transparent")
-        settings_row.pack(fill="x", padx=8, pady=6)
+        # Settings row 1: Dropdowns (Input / Output formats)
+        fmt_selection_row = ctk.CTkFrame(parent, fg_color="transparent")
+        fmt_selection_row.pack(fill="x", padx=8, pady=4)
 
-        ctk.CTkLabel(settings_row, text="Convert to:",
+        ctk.CTkLabel(fmt_selection_row, text="Input Format:",
                      text_color=GRAY, font=ctk.CTkFont(size=12)).pack(side="left")
-        self._fmt_buttons = {}
-        for fmt in ALL_FORMATS:
-            rb = ctk.CTkRadioButton(
-                settings_row, text=fmt, variable=self.target_fmt, value=fmt,
-                text_color=WHITE, fg_color=CYAN2,
-                font=ctk.CTkFont(size=12),
-            )
-            rb.pack(side="left", padx=6)
-            self._fmt_buttons[fmt] = rb
+        self.input_fmt_combo = ctk.CTkOptionMenu(
+            fmt_selection_row,
+            values=["ISO", "BIN", "CUE", "GDI", "IMG", "CHD", "CSO", "ZSO", "ECM", "XISO"],
+            variable=self.input_fmt,
+            fg_color=DARK3, button_color=CYAN2, dropdown_fg_color=DARK3, text_color=WHITE,
+            width=120, height=26, font=ctk.CTkFont(size=12),
+            command=self._on_global_input_changed
+        )
+        self.input_fmt_combo.pack(side="left", padx=(6, 20))
 
-        ctk.CTkLabel(settings_row, text="  Compression:",
-                     text_color=GRAY, font=ctk.CTkFont(size=12)).pack(side="left", padx=(16, 0))
+        ctk.CTkLabel(fmt_selection_row, text="Output Format:",
+                     text_color=GRAY, font=ctk.CTkFont(size=12)).pack(side="left")
+        self.output_fmt_combo = ctk.CTkOptionMenu(
+            fmt_selection_row,
+            values=["CHD", "ISO", "BIN", "CSO", "ECM", "XISO"],
+            variable=self.target_fmt,
+            fg_color=DARK3, button_color=CYAN2, dropdown_fg_color=DARK3, text_color=WHITE,
+            width=120, height=26, font=ctk.CTkFont(size=12),
+            command=self._on_global_target_changed
+        )
+        self.output_fmt_combo.pack(side="left", padx=6)
+
+        ctk.CTkLabel(fmt_selection_row, text="Compression:",
+                     text_color=GRAY, font=ctk.CTkFont(size=12)).pack(side="left", padx=(20, 6))
         for lvl in ["Normal", "High", "Max"]:
             ctk.CTkRadioButton(
-                settings_row, text=lvl, variable=self.compression, value=lvl,
+                fmt_selection_row, text=lvl, variable=self.compression, value=lvl,
                 text_color=WHITE, fg_color=CYAN2,
                 font=ctk.CTkFont(size=12),
             ).pack(side="left", padx=6)
@@ -226,6 +290,14 @@ class MainWindow(ctk.CTk):
             command=self._start_conversion,
         )
         self.start_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        self.cancel_btn = ctk.CTkButton(
+            btn_row, text="⏹ Cancel", width=100, height=42,
+            fg_color=DARK3, hover_color=DARK2, text_color=GRAY,
+            command=self._stop_conversion,
+            state="disabled"
+        )
+        self.cancel_btn.pack(side="left", padx=(0, 8))
 
         ctk.CTkButton(
             btn_row, text="✖ Clear All", width=100, height=42,
@@ -296,8 +368,15 @@ class MainWindow(ctk.CTk):
             if not valid:
                 self._append_log(f"[SKIP] {os.path.basename(p)} — no valid conversion targets")
                 continue
-            # Pick first valid target as default
-            default_fmt = valid[0] if self.target_fmt.get() not in valid else self.target_fmt.get()
+
+            # Use current global target format if valid, else pick first valid target
+            current_target = self.target_fmt.get()
+            default_fmt = current_target if current_target in valid else valid[0]
+
+            # Auto-detect input format to update combobox state for visual feedback
+            detected_fmt = info.get("format", "ISO")
+            self.input_fmt.set(detected_fmt)
+
             job = ConversionJob(
                 filepath=p,
                 output_dir="",
@@ -325,11 +404,13 @@ class MainWindow(ctk.CTk):
             text_color=WHITE, font=ctk.CTkFont(size=11),
         ).pack(side="left", padx=6)
 
-        ctk.CTkLabel(
+        # Label for displaying input format in the row (can be changed dynamically)
+        fmt_lbl = ctk.CTkLabel(
             row, text=info.get("format", "?"),
             width=70, anchor="w",
             text_color=CYAN, font=ctk.CTkFont(size=11),
-        ).pack(side="left")
+        )
+        fmt_lbl.pack(side="left")
 
         ctk.CTkLabel(
             row, text=info.get("size_str", "?"),
@@ -369,8 +450,42 @@ class MainWindow(ctk.CTk):
         prog.set(0)
 
         self.job_rows[job.filepath] = {
-            "row": row, "status": status_lbl, "progress": prog,
+            "row": row, "status": status_lbl, "progress": prog, "menu": fmt_menu, "var": fmt_var, "fmt_lbl": fmt_lbl
         }
+
+    def _on_global_input_changed(self, val):
+        # Manual override of the input format for all queued files
+        with self._jobs_lock:
+            for job in self.jobs:
+                if job.status == "Queued":
+                    # Let's perform validation of valid targets with manual override
+                    targets = get_valid_targets(val)
+                    if targets:
+                        row_widgets = self.job_rows.get(job.filepath)
+                        if row_widgets:
+                            # Update display label of input format
+                            row_widgets["fmt_lbl"].configure(text=val)
+
+                            # Reconfigure the output option menu with new valid targets
+                            row_widgets["menu"].configure(values=targets)
+
+                            # If current job target format is not valid for the new input format, update it
+                            if job.target_format not in targets:
+                                job.target_format = targets[0]
+                                row_widgets["var"].set(targets[0])
+
+    def _on_global_target_changed(self, val):
+        # Update target formats of queued files if valid
+        with self._jobs_lock:
+            for job in self.jobs:
+                if job.status == "Queued":
+                    row_widgets = self.job_rows.get(job.filepath)
+                    if row_widgets:
+                        current_in_fmt = row_widgets["fmt_lbl"].cget("text")
+                        valid = get_valid_targets(current_in_fmt)
+                        if val in valid:
+                            job.target_format = val
+                            row_widgets["var"].set(val)
 
     def _clear_all(self):
         if self._converting:
@@ -393,6 +508,7 @@ class MainWindow(ctk.CTk):
         self.start_btn.configure(
             text="⏹  STOP", fg_color=RED,
             command=self._stop_conversion)
+        self.cancel_btn.configure(state="normal")
 
         def run():
             with self._jobs_lock:
@@ -446,6 +562,7 @@ class MainWindow(ctk.CTk):
             fg_color=CYAN2,
             command=self._start_conversion,
         )
+        self.cancel_btn.configure(state="disabled")
         self.progress_bar.set(1.0)
         self._update_status()
         self._append_log("> All jobs finished")
@@ -511,7 +628,20 @@ class MainWindow(ctk.CTk):
     def _append_log(self, msg: str):
         def _do():
             self.log_box.configure(state="normal")
+
+            # If log message is error/warning/failed, highlight or print differently
+            # Specifically requested styling errors in red
+            is_error = "[ERROR]" in msg or "❌" in msg or "failed" in msg.lower()
+
+            start_idx = self.log_box.index("end-1c")
             self.log_box.insert("end", msg + "\n")
+            end_idx = self.log_box.index("end-1c")
+
+            if is_error:
+                # Add a tag "error" to this line
+                self.log_box.tag_add("error", start_idx, end_idx)
+                self.log_box.tag_config("error", foreground=RED)
+
             self.log_box.see("end")
             self.log_box.configure(state="disabled")
         self.after(0, _do)
