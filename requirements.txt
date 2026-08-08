@@ -5,3 +5,4 @@ psutil>=5.9.0
 send2trash>=1.8.2
 packaging>=23.0
 tkinterdnd2>=0.3.0
+qrcode>=8.0.0

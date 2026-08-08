@@ -128,45 +128,18 @@ def detect_folder(folder: str) -> list:
     return results
 
 
+from core.config import get_tool_path as _get_tool_path
+
 def get_chdman_path() -> str:
-    system = platform.system()
-    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    if system == "Windows":
-        return os.path.join(base, "assets", "windows", "chdman.exe")
-    elif system == "Linux":
-        # Try bundled first, fall back to system PATH
-        bundled = os.path.join(base, "assets", "linux", "chdman")
-        return bundled if os.path.isfile(bundled) else "chdman"
-    return "chdman"
+    return _get_tool_path("chdman")
 
 
 def get_tool_path(tool: str) -> str:
     """
     tool: 'ecm' | 'unecm' | 'maxcso' | 'xiso'
-    Returns path to bundled binary, falling back to system PATH if not bundled.
-    Note: ciso is NOT used — maxcso handles both compress and decompress.
+    Returns path to configured or bundled binary, falling back to system PATH.
     """
-    system = platform.system()
-    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    names = {
-        "Windows": {
-            "ecm":    "ecm.exe",
-            "unecm":  "unecm.exe",
-            "maxcso": "maxcso.exe",
-            "xiso":   "extract-xiso.exe",
-        },
-        "Linux": {
-            "ecm":    "ecm",
-            "unecm":  "unecm",
-            "maxcso": "maxcso",
-            "xiso":   "extract-xiso",
-        },
-    }
-    folder = "windows" if system == "Windows" else "linux"
-    fname  = names.get(system, names["Linux"]).get(tool, tool)
-    bundled = os.path.join(base, "assets", folder, fname)
-    # Fall back to system PATH if bundled binary missing
-    return bundled if os.path.isfile(bundled) else tool
+    return _get_tool_path(tool)
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
