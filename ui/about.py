@@ -51,7 +51,7 @@ class AboutWindow(ctk.CTkToplevel):
                      font=ctk.CTkFont(size=12, weight="bold"),
                      text_color=CYAN).pack(pady=(10, 2))
 
-        wallet_address = "TXyz1234567890ABCDEF1234567890"
+        wallet_address = "TWbG9smLbcyTcVod3YsRPyEtWhtQnnu7vC"
 
         entry = ctk.CTkEntry(self, fg_color=DARK3, border_color=CYAN2,
                              text_color=WHITE, justify="center", width=320,
