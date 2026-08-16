@@ -3,71 +3,62 @@ import threading
 import tkinter as tk
 import customtkinter as ctk
 from tkinter import filedialog, StringVar, messagebox
+
 from ui.drag_drop import DragDropFrame
 from ui.settings import SettingsWindow
 from ui.about import AboutWindow
-from core.detector import detect_file, detect_folder, SUPPORTED_INPUT, get_valid_targets
+from core.detector import detect_file, detect_folder, SUPPORTED_INPUT, get_valid_targets, get_command_preview, get_badge_color
 from core.converter import Converter, ConversionJob
 from core.validator import verify_chd
+from core.logger import log
 
-# ── Theme ─────────────────────────────────────────────────────────────────────
+# ── Color Palette (Matching Design Specifications) ───────────────────────────
+BG_DARK     = "#1a1a2e"
+CARD_BG     = "#16213e"
+ACCENT_RED  = "#e94560"
+BORDER_DARK = "#333333"
+TEXT_WHITE  = "#ffffff"
+TEXT_GRAY   = "#a0a0b0"
+GREEN_DONE  = "#00e676"
+RED_FAIL    = "#ff5252"
+
 ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("blue")
-
-NAVY   = "#0d1b2a"
-CYAN   = "#00e5ff"
-CYAN2  = "#00b4cc"
-DARK2  = "#112233"
-DARK3  = "#0a1628"
-WHITE  = "#e0f0ff"
-GRAY   = "#7a8a9a"
-GREEN  = "#00e676"
-RED    = "#ff5252"
-AMBER  = "#ffab40"
-
-# All possible output formats shown in the UI
-ALL_FORMATS = ["CHD", "ISO", "BIN", "CSO", "ECM", "XISO"]
-
 
 class MainWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("OpenROM  |  M5 Dev")
-        self.geometry("960x700")
-        self.minsize(800, 600)
-        self.configure(fg_color=NAVY)
+        self.title("OpenROM v2.0 - Universal ROM Compression Suite")
+        self.geometry("980x680")
+        self.minsize(900, 600)
+        self.configure(fg_color=BG_DARK)
 
         # State
-        self._jobs_lock  = threading.Lock()
+        self._jobs_lock = threading.Lock()
         self.jobs: list[ConversionJob] = []
-        self.job_rows: dict = {}          # filepath → row widgets
-        self.output_dir  = StringVar(value="")
-        self.same_as_src = ctk.BooleanVar(value=True)
-        self.compression = StringVar(value="High")
-        self.target_fmt  = StringVar(value="CHD")
-        self.delete_src  = ctk.BooleanVar(value=False)
-        self.verify_after= ctk.BooleanVar(value=True)
-        self._converting = False
+        self.selected_job_index: int | None = None
 
-        # New: Input format combo box state
-        self.input_fmt = StringVar(value="ISO")
+        self.compression   = StringVar(value="Normal")
+        self.verify_after  = ctk.BooleanVar(value=True)
+        self.selected_target = StringVar(value="")
+        self.output_dir    = StringVar(value="")
+        self.same_as_src   = ctk.BooleanVar(value=True)
 
-        self.converter   = Converter(
-            on_log=self._append_log,
+        self._converting   = False
+
+        self.converter     = Converter(
+            on_log=self._on_log_msg,
             on_progress=self._on_progress,
         )
 
         self._build_menu()
         self._build_ui()
 
-    # ── Build Native Menu Bar ──────────────────────────────────────────────────
+    # ── Menu Bar ──────────────────────────────────────────────────────────────
 
     def _build_menu(self):
-        # Create a native tk.Menu
         self.menu_bar = tk.Menu(self)
         self.config(menu=self.menu_bar)
 
-        # File Menu
         file_menu = tk.Menu(self.menu_bar, tearoff=0)
         file_menu.add_command(label="Open Files...", command=self._menu_open_files)
         file_menu.add_command(label="Open Folder...", command=self._menu_open_folder)
@@ -75,16 +66,11 @@ class MainWindow(ctk.CTk):
         file_menu.add_command(label="Exit", command=self.quit)
         self.menu_bar.add_cascade(label="File", menu=file_menu)
 
-        # Settings Menu
         self.menu_bar.add_command(label="Settings", command=self._open_settings)
 
-        # Help Menu
         help_menu = tk.Menu(self.menu_bar, tearoff=0)
         help_menu.add_command(label="About OpenROM", command=self._open_about)
-        help_menu.add_command(label="Check for Updates", command=self._menu_check_updates)
         self.menu_bar.add_cascade(label="Help", menu=help_menu)
-
-    # ── Menu Commands ──────────────────────────────────────────────────────────
 
     def _menu_open_files(self):
         filetypes = [
@@ -100,569 +86,479 @@ class MainWindow(ctk.CTk):
         if folder:
             self._add_folder(folder)
 
-    def _open_about(self):
-        AboutWindow(self)
-
-    def _menu_check_updates(self):
-        messagebox.showinfo("Update Check", "You are running the latest version (v1.0.0).")
-
-    # ── Build UI ──────────────────────────────────────────────────────────────
+    # ── Main Two-Column UI ───────────────────────────────────────────────────
 
     def _build_ui(self):
-        # Header
-        hdr = ctk.CTkFrame(self, fg_color=DARK3, height=56, corner_radius=0)
-        hdr.pack(fill="x")
-        ctk.CTkLabel(
-            hdr, text="⬡  OpenROM",
-            font=ctk.CTkFont(size=22, weight="bold"),
-            text_color=CYAN,
-        ).pack(side="left", padx=20, pady=12)
-        ctk.CTkLabel(
-            hdr, text="Universal ROM Compression Suite  |  M5 Dev",
-            font=ctk.CTkFont(size=12),
-            text_color=GRAY,
-        ).pack(side="left", pady=12)
+        # Master grid container: 2 columns
+        self.grid_columnconfigure(0, weight=1, minsize=420)
+        self.grid_columnconfigure(1, weight=1, minsize=440)
+        self.grid_rowconfigure(0, weight=1)
 
-        ctk.CTkButton(
-            hdr, text="⚙", width=40, height=32,
-            fg_color="transparent", text_color=GRAY,
-            hover_color=DARK2,
-            command=self._open_settings,
-        ).pack(side="right", padx=8)
+        self._build_left_column()
+        self._build_right_column()
 
-        ctk.CTkButton(
-            hdr, text="☕ Ko-fi", width=80, height=32,
-            fg_color="#FF5E5B", hover_color="#cc4a47",
-            text_color="white",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            command=lambda: self._open_url("https://ko-fi.com/m5dev"),
-        ).pack(side="right", padx=4)
+    # ── Left Column ───────────────────────────────────────────────────────────
 
-        # Tabs
-        tabs = ctk.CTkTabview(
-            self, fg_color=DARK2,
-            segmented_button_fg_color=DARK3,
-            segmented_button_selected_color=CYAN2,
-            segmented_button_unselected_color=DARK3,
-            segmented_button_selected_hover_color=CYAN,
+    def _build_left_column(self):
+        left_frame = ctk.CTkFrame(self, fg_color="transparent")
+        left_frame.grid(row=0, column=0, sticky="nsew", padx=(16, 8), pady=16)
+        left_frame.grid_rowconfigure(2, weight=1)
+        left_frame.grid_columnconfigure(0, weight=1)
+
+        # 1. Header
+        hdr_frame = ctk.CTkFrame(left_frame, fg_color="transparent")
+        hdr_frame.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+
+        title_lbl = ctk.CTkLabel(
+            hdr_frame, text="🎮 OpenROM",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color=TEXT_WHITE
         )
-        tabs.pack(fill="both", expand=True, padx=12, pady=(8, 0))
-        tabs.add("  Compress  ")
-        tabs.add("  Extract  ")
+        title_lbl.pack(anchor="w")
 
-        self._build_compress_tab(tabs.tab("  Compress  "))
-        self._build_extract_tab(tabs.tab("  Extract  "))
-
-        # Log
-        log_frame = ctk.CTkFrame(self, fg_color=DARK3, corner_radius=0, height=150)
-        log_frame.pack(fill="x", side="bottom")
-        log_frame.pack_propagate(False)
-
-        log_hdr = ctk.CTkFrame(log_frame, fg_color="transparent")
-        log_hdr.pack(fill="x", padx=8, pady=(4, 0))
-        ctk.CTkLabel(log_hdr, text="Operation Log",
-                     font=ctk.CTkFont(size=12, weight="bold"),
-                     text_color=CYAN).pack(side="left")
-        ctk.CTkButton(log_hdr, text="Clear", width=50, height=22,
-                      fg_color="transparent", text_color=GRAY,
-                      hover_color=DARK2,
-                      command=self._clear_log).pack(side="right")
-
-        self.log_box = ctk.CTkTextbox(
-            log_frame, fg_color=DARK3, text_color=CYAN2,
-            font=ctk.CTkFont(family="Consolas", size=11),
-            border_width=0,
+        sub_lbl = ctk.CTkLabel(
+            hdr_frame, text="Universal ROM Suite",
+            font=ctk.CTkFont(size=13),
+            text_color=TEXT_GRAY
         )
-        self.log_box.pack(fill="both", expand=True, padx=8, pady=(0, 6))
-        self._append_log("> OpenROM initialized  —  M5 Dev Edition")
-        self._append_log("> Drop your ROM files or use Browse to get started")
+        sub_lbl.pack(anchor="w")
 
-    # ── Compress Tab ──────────────────────────────────────────────────────────
-
-    def _build_compress_tab(self, parent):
+        # 2. DROP ZONE Card
         self.drop_frame = DragDropFrame(
-            parent,
+            left_frame,
             on_files=self._add_files,
             on_folder=self._add_folder,
+            label="Drop ROM files here\nor click to browse"
         )
-        self.drop_frame.pack(fill="x", padx=8, pady=8)
+        self.drop_frame.grid(row=1, column=0, sticky="ew", pady=(0, 12))
 
-        # File list
-        list_frame = ctk.CTkFrame(parent, fg_color=DARK2)
-        list_frame.pack(fill="both", expand=True, padx=8)
+        # 3. Queue Section Card
+        queue_card = ctk.CTkFrame(left_frame, fg_color=CARD_BG, corner_radius=12, border_color=BORDER_DARK, border_width=1)
+        queue_card.grid(row=2, column=0, sticky="nsew")
+        queue_card.grid_rowconfigure(1, weight=1)
+        queue_card.grid_columnconfigure(0, weight=1)
 
-        hdr = ctk.CTkFrame(list_frame, fg_color=DARK3, height=28)
-        hdr.pack(fill="x")
-        hdr.pack_propagate(False)
-        for text, width in [("File Name", 280), ("Fmt", 70),
-                             ("Size", 80), ("Valid Targets", 160), ("Status", 120)]:
-            ctk.CTkLabel(hdr, text=text, width=width,
-                         font=ctk.CTkFont(size=11, weight="bold"),
-                         text_color=GRAY, anchor="w").pack(side="left", padx=6)
+        queue_hdr = ctk.CTkFrame(queue_card, fg_color="transparent")
+        queue_hdr.grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 4))
 
-        self.file_list = ctk.CTkScrollableFrame(
-            list_frame, fg_color=DARK2, height=180)
-        self.file_list.pack(fill="both", expand=True)
-
-        # Settings row 1: Dropdowns (Input / Output formats)
-        fmt_selection_row = ctk.CTkFrame(parent, fg_color="transparent")
-        fmt_selection_row.pack(fill="x", padx=8, pady=4)
-
-        ctk.CTkLabel(fmt_selection_row, text="Input Format:",
-                     text_color=GRAY, font=ctk.CTkFont(size=12)).pack(side="left")
-        self.input_fmt_combo = ctk.CTkOptionMenu(
-            fmt_selection_row,
-            values=["ISO", "BIN", "CUE", "GDI", "IMG", "CHD", "CSO", "ZSO", "ECM", "XISO"],
-            variable=self.input_fmt,
-            fg_color=DARK3, button_color=CYAN2, dropdown_fg_color=DARK3, text_color=WHITE,
-            width=120, height=26, font=ctk.CTkFont(size=12),
-            command=self._on_global_input_changed
-        )
-        self.input_fmt_combo.pack(side="left", padx=(6, 20))
-
-        ctk.CTkLabel(fmt_selection_row, text="Output Format:",
-                     text_color=GRAY, font=ctk.CTkFont(size=12)).pack(side="left")
-        self.output_fmt_combo = ctk.CTkOptionMenu(
-            fmt_selection_row,
-            values=["CHD", "ISO", "BIN", "CSO", "ECM", "XISO"],
-            variable=self.target_fmt,
-            fg_color=DARK3, button_color=CYAN2, dropdown_fg_color=DARK3, text_color=WHITE,
-            width=120, height=26, font=ctk.CTkFont(size=12),
-            command=self._on_global_target_changed
-        )
-        self.output_fmt_combo.pack(side="left", padx=6)
-
-        ctk.CTkLabel(fmt_selection_row, text="Compression:",
-                     text_color=GRAY, font=ctk.CTkFont(size=12)).pack(side="left", padx=(20, 6))
-        for lvl in ["Normal", "High", "Max"]:
-            ctk.CTkRadioButton(
-                fmt_selection_row, text=lvl, variable=self.compression, value=lvl,
-                text_color=WHITE, fg_color=CYAN2,
-                font=ctk.CTkFont(size=12),
-            ).pack(side="left", padx=6)
-
-        # Output row
-        out_row = ctk.CTkFrame(parent, fg_color="transparent")
-        out_row.pack(fill="x", padx=8, pady=(0, 4))
-
-        ctk.CTkLabel(out_row, text="Output:",
-                     text_color=GRAY, font=ctk.CTkFont(size=12)).pack(side="left")
-        self.out_entry = ctk.CTkEntry(
-            out_row, textvariable=self.output_dir,
-            fg_color=DARK3, border_color=CYAN2,
-            text_color=WHITE, width=320, state="disabled",
-        )
-        self.out_entry.pack(side="left", padx=6)
-        ctk.CTkButton(
-            out_row, text="📁", width=36, height=28,
-            fg_color=DARK3, hover_color=DARK2, text_color=CYAN,
-            command=self._browse_output,
-        ).pack(side="left")
-        ctk.CTkCheckBox(
-            out_row, text="Same as source",
-            variable=self.same_as_src,
-            text_color=GRAY, fg_color=CYAN2,
-            font=ctk.CTkFont(size=12),
-            command=self._toggle_same_src,
-        ).pack(side="left", padx=12)
-        ctk.CTkCheckBox(
-            out_row, text="Delete source after",
-            variable=self.delete_src,
-            text_color=GRAY, fg_color=CYAN2,
-            font=ctk.CTkFont(size=12),
-        ).pack(side="left", padx=8)
-        ctk.CTkCheckBox(
-            out_row, text="Verify CHD after",
-            variable=self.verify_after,
-            text_color=GRAY, fg_color=CYAN2,
-            font=ctk.CTkFont(size=12),
-        ).pack(side="left", padx=8)
-
-        # Start / progress
-        btn_row = ctk.CTkFrame(parent, fg_color="transparent")
-        btn_row.pack(fill="x", padx=8, pady=(4, 8))
-
-        self.start_btn = ctk.CTkButton(
-            btn_row, text="▶  START CONVERSION",
+        self.queue_label = ctk.CTkLabel(
+            queue_hdr, text="📋 Queue (0)",
             font=ctk.CTkFont(size=14, weight="bold"),
-            fg_color=CYAN2, hover_color=CYAN,
-            text_color=NAVY, height=42,
-            command=self._start_conversion,
+            text_color=TEXT_WHITE
         )
-        self.start_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.queue_label.pack(side="left")
+
+        # Scrollable list of queued files
+        self.queue_list = ctk.CTkScrollableFrame(
+            queue_card, fg_color="transparent", corner_radius=0
+        )
+        self.queue_list.grid(row=1, column=0, sticky="nsew", padx=6, pady=4)
+
+        # Bottom Clear All Button
+        btn_bar = ctk.CTkFrame(queue_card, fg_color="transparent")
+        btn_bar.grid(row=2, column=0, sticky="ew", padx=12, pady=10)
+
+        clear_btn = ctk.CTkButton(
+            btn_bar, text="Clear All",
+            fg_color=BORDER_DARK, hover_color="#444444",
+            text_color=TEXT_WHITE, font=ctk.CTkFont(size=12, weight="bold"),
+            height=32, command=self._clear_all
+        )
+        clear_btn.pack(side="left")
+
+    # ── Right Column ──────────────────────────────────────────────────────────
+
+    def _build_right_column(self):
+        right_frame = ctk.CTkFrame(self, fg_color="transparent")
+        right_frame.grid(row=0, column=1, sticky="nsew", padx=(8, 16), pady=16)
+        right_frame.grid_rowconfigure(1, weight=1)
+        right_frame.grid_columnconfigure(0, weight=1)
+
+        # 1. Conversion Settings Header
+        settings_hdr = ctk.CTkFrame(right_frame, fg_color="transparent")
+        settings_hdr.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+
+        hdr_title = ctk.CTkLabel(
+            settings_hdr, text="⚙️ Conversion Settings",
+            font=ctk.CTkFont(size=20, weight="bold"),
+            text_color=TEXT_WHITE
+        )
+        hdr_title.pack(side="left", anchor="w")
+
+        about_btn = ctk.CTkButton(
+            settings_hdr, text="About / Support",
+            width=110, height=28,
+            fg_color=BORDER_DARK, hover_color="#444444",
+            text_color=TEXT_WHITE, font=ctk.CTkFont(size=11),
+            command=self._open_about
+        )
+        about_btn.pack(side="right")
+
+        # Main Settings Card
+        self.settings_card = ctk.CTkFrame(right_frame, fg_color=CARD_BG, corner_radius=12, border_color=BORDER_DARK, border_width=1)
+        self.settings_card.grid(row=1, column=0, sticky="nsew")
+        self.settings_card.grid_columnconfigure(0, weight=1)
+
+        # Selected File Info Sub-card
+        self.info_card = ctk.CTkFrame(self.settings_card, fg_color=BG_DARK, corner_radius=10)
+        self.info_card.pack(fill="x", padx=16, pady=(16, 12))
+
+        self.info_icon_title = ctk.CTkLabel(
+            self.info_card, text="📀 No File Selected",
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color=TEXT_WHITE, anchor="w"
+        )
+        self.info_icon_title.pack(fill="x", padx=12, pady=(10, 2))
+
+        self.info_meta = ctk.CTkLabel(
+            self.info_card, text="Select or drop a file to configure conversion",
+            font=ctk.CTkFont(size=12),
+            text_color=TEXT_GRAY, anchor="w"
+        )
+        self.info_meta.pack(fill="x", padx=12, pady=(0, 10))
+
+        # CONVERT TO Header
+        ctk.CTkLabel(
+            self.settings_card, text="CONVERT TO:",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=TEXT_GRAY
+        ).pack(anchor="w", padx=16, pady=(4, 6))
+
+        # Output target selection buttons container
+        self.target_buttons_frame = ctk.CTkFrame(self.settings_card, fg_color="transparent")
+        self.target_buttons_frame.pack(fill="x", padx=16, pady=(0, 10))
+
+        # Command Preview Box
+        self.cmd_preview_box = ctk.CTkFrame(self.settings_card, fg_color=BG_DARK, corner_radius=8)
+        self.cmd_preview_box.pack(fill="x", padx=16, pady=(0, 12))
+
+        self.cmd_selected_lbl = ctk.CTkLabel(
+            self.cmd_preview_box, text="➜ Select target output format",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=ACCENT_RED, anchor="w"
+        )
+        self.cmd_selected_lbl.pack(fill="x", padx=10, pady=(6, 2))
+
+        self.cmd_str_lbl = ctk.CTkLabel(
+            self.cmd_preview_box, text="Command will appear here...",
+            font=ctk.CTkFont(family="Consolas", size=11),
+            text_color=TEXT_GRAY, anchor="w"
+        )
+        self.cmd_str_lbl.pack(fill="x", padx=10, pady=(0, 6))
+
+        # Options Section
+        ctk.CTkLabel(
+            self.settings_card, text="[Options]",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=TEXT_WHITE
+        ).pack(anchor="w", padx=16, pady=(4, 6))
+
+        opt_row = ctk.CTkFrame(self.settings_card, fg_color="transparent")
+        opt_row.pack(fill="x", padx=16, pady=(0, 12))
+
+        ctk.CTkLabel(
+            opt_row, text="Compression:",
+            font=ctk.CTkFont(size=12), text_color=TEXT_GRAY
+        ).pack(side="left", padx=(0, 8))
+
+        self.compression_menu = ctk.CTkOptionMenu(
+            opt_row,
+            values=["Normal", "High", "Max"],
+            variable=self.compression,
+            fg_color=BG_DARK, button_color=BORDER_DARK,
+            dropdown_fg_color=CARD_BG, text_color=TEXT_WHITE,
+            width=110, height=28, font=ctk.CTkFont(size=12),
+            command=self._on_compression_changed
+        )
+        self.compression_menu.pack(side="left", padx=(0, 16))
+
+        self.verify_chk = ctk.CTkCheckBox(
+            opt_row, text="Verify after conversion",
+            variable=self.verify_after,
+            text_color=TEXT_WHITE, fg_color=ACCENT_RED,
+            font=ctk.CTkFont(size=12)
+        )
+        self.verify_chk.pack(side="left")
+
+        # Action Buttons Area
+        act_row = ctk.CTkFrame(self.settings_card, fg_color="transparent")
+        act_row.pack(fill="x", padx=16, pady=(12, 8))
+
+        self.convert_btn = ctk.CTkButton(
+            act_row, text="🚀 Convert",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color=ACCENT_RED, hover_color="#c8344d",
+            text_color=TEXT_WHITE, height=42,
+            command=self._start_conversion
+        )
+        self.convert_btn.pack(side="left", fill="x", expand=True, padx=(0, 8))
 
         self.cancel_btn = ctk.CTkButton(
-            btn_row, text="⏹ Cancel", width=100, height=42,
-            fg_color=DARK3, hover_color=DARK2, text_color=GRAY,
-            command=self._stop_conversion,
-            state="disabled"
+            act_row, text="✕ Cancel",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color=BORDER_DARK, hover_color="#444444",
+            text_color=TEXT_WHITE, width=110, height=42,
+            state="disabled", command=self._stop_conversion
         )
-        self.cancel_btn.pack(side="left", padx=(0, 8))
+        self.cancel_btn.pack(side="right")
 
-        ctk.CTkButton(
-            btn_row, text="✖ Clear All", width=100, height=42,
-            fg_color=DARK3, hover_color=DARK2, text_color=GRAY,
-            command=self._clear_all,
-        ).pack(side="left")
-
+        # Progress bar
         self.progress_bar = ctk.CTkProgressBar(
-            parent, fg_color=DARK3, progress_color=CYAN2)
-        self.progress_bar.pack(fill="x", padx=8, pady=(0, 4))
+            self.settings_card, fg_color=BG_DARK, progress_color=ACCENT_RED, height=10
+        )
+        self.progress_bar.pack(fill="x", padx=16, pady=(8, 16))
         self.progress_bar.set(0)
 
-        self.status_label = ctk.CTkLabel(
-            parent, text="Queue: 0 files  |  Status: Idle",
-            text_color=GRAY, font=ctk.CTkFont(size=11))
-        self.status_label.pack(anchor="e", padx=8)
-
-    # ── Extract Tab ───────────────────────────────────────────────────────────
-
-    def _build_extract_tab(self, parent):
-        ctk.CTkLabel(
-            parent,
-            text="Drop a .chd file to extract it back to ISO / BIN+CUE",
-            text_color=GRAY, font=ctk.CTkFont(size=13),
-        ).pack(pady=20)
-
-        self.ext_drop = DragDropFrame(
-            parent,
-            on_files=self._extract_files,
-            on_folder=None,
-            label="Drop .CHD files here or Browse",
-            accepted_exts=[".chd"],
-        )
-        self.ext_drop.pack(fill="x", padx=8)
-
-        fmt_row = ctk.CTkFrame(parent, fg_color="transparent")
-        fmt_row.pack(pady=12)
-        ctk.CTkLabel(fmt_row, text="Extract to:",
-                     text_color=GRAY).pack(side="left", padx=8)
-        self.ext_fmt = StringVar(value="ISO")
-        for fmt in ["ISO", "BIN"]:
-            ctk.CTkRadioButton(
-                fmt_row, text=fmt, variable=self.ext_fmt, value=fmt,
-                text_color=WHITE, fg_color=CYAN2,
-            ).pack(side="left", padx=8)
-
-        self.ext_btn = ctk.CTkButton(
-            parent, text="▶  START EXTRACTION",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            fg_color=CYAN2, hover_color=CYAN,
-            text_color=NAVY, height=42,
-            command=self._start_extraction,
-        )
-        self.ext_btn.pack(padx=8, pady=8, fill="x")
-        self.ext_files: list = []
-
-    # ── File management ───────────────────────────────────────────────────────
+    # ── Queue & Selection Logic ───────────────────────────────────────────────
 
     def _add_files(self, paths: list):
+        added_any = False
         with self._jobs_lock:
             existing = {j.filepath for j in self.jobs}
-        for p in paths:
-            ext = os.path.splitext(p)[1].lower()
-            if ext not in SUPPORTED_INPUT or p in existing:
-                continue
-            info = detect_file(p)
-            valid = info.get("valid_targets", [])
-            if not valid:
-                self._append_log(f"[SKIP] {os.path.basename(p)} — no valid conversion targets")
-                continue
+            for p in paths:
+                ext = os.path.splitext(p)[1].lower()
+                if ext not in SUPPORTED_INPUT or p in existing:
+                    continue
+                info = detect_file(p)
+                valid = info.get("valid_targets", [])
+                if not valid:
+                    log(f"[SKIP] {os.path.basename(p)} — no valid conversion targets")
+                    continue
 
-            # Use current global target format if valid, else pick first valid target
-            current_target = self.target_fmt.get()
-            default_fmt = current_target if current_target in valid else valid[0]
-
-            # Auto-detect input format to update combobox state for visual feedback
-            detected_fmt = info.get("format", "ISO")
-            self.input_fmt.set(detected_fmt)
-
-            job = ConversionJob(
-                filepath=p,
-                output_dir="",
-                target_format=default_fmt,
-                compression=self.compression.get(),
-            )
-            with self._jobs_lock:
+                default_fmt = valid[0]
+                job = ConversionJob(
+                    filepath=p,
+                    output_dir=os.path.dirname(p),
+                    target_format=default_fmt,
+                    compression=self.compression.get(),
+                    verify=self.verify_after.get()
+                )
                 self.jobs.append(job)
                 existing.add(p)
-            self._add_row(job, info, valid)
-        self._update_status()
+                added_any = True
+
+        if added_any:
+            if self.selected_job_index is None:
+                self.selected_job_index = len(self.jobs) - 1
+            self._refresh_queue_ui()
+            self._refresh_selected_info()
 
     def _add_folder(self, folder: str):
         files = detect_folder(folder)
         paths = [f["filepath"] for f in files]
         self._add_files(paths)
 
-    def _add_row(self, job: ConversionJob, info: dict, valid_targets: list):
-        row = ctk.CTkFrame(self.file_list, fg_color=DARK3, height=34)
-        row.pack(fill="x", pady=1)
-
-        ctk.CTkLabel(
-            row, text=os.path.basename(job.filepath)[:38],
-            width=280, anchor="w",
-            text_color=WHITE, font=ctk.CTkFont(size=11),
-        ).pack(side="left", padx=6)
-
-        # Label for displaying input format in the row (can be changed dynamically)
-        fmt_lbl = ctk.CTkLabel(
-            row, text=info.get("format", "?"),
-            width=70, anchor="w",
-            text_color=CYAN, font=ctk.CTkFont(size=11),
-        )
-        fmt_lbl.pack(side="left")
-
-        ctk.CTkLabel(
-            row, text=info.get("size_str", "?"),
-            width=80, anchor="w",
-            text_color=GRAY, font=ctk.CTkFont(size=11),
-        ).pack(side="left")
-
-        # Inline target format selector — only shows valid options
-        fmt_var = StringVar(value=job.target_format)
-
-        def _on_fmt_change(val, j=job, v=fmt_var):
-            j.target_format = val
-
-        fmt_menu = ctk.CTkOptionMenu(
-            row,
-            values=valid_targets,
-            variable=fmt_var,
-            command=_on_fmt_change,
-            fg_color=DARK2, button_color=CYAN2,
-            dropdown_fg_color=DARK3,
-            text_color=WHITE,
-            width=150, height=24,
-            font=ctk.CTkFont(size=11),
-        )
-        fmt_menu.pack(side="left", padx=4)
-
-        status_lbl = ctk.CTkLabel(
-            row, text="Queued",
-            width=120, anchor="w",
-            text_color=AMBER, font=ctk.CTkFont(size=11),
-        )
-        status_lbl.pack(side="left")
-
-        prog = ctk.CTkProgressBar(row, width=80, height=10,
-                                   fg_color=DARK2, progress_color=CYAN2)
-        prog.pack(side="left", padx=4)
-        prog.set(0)
-
-        self.job_rows[job.filepath] = {
-            "row": row, "status": status_lbl, "progress": prog, "menu": fmt_menu, "var": fmt_var, "fmt_lbl": fmt_lbl
-        }
-
-    def _on_global_input_changed(self, val):
-        # Manual override of the input format for all queued files
-        with self._jobs_lock:
-            for job in self.jobs:
-                if job.status == "Queued":
-                    # Let's perform validation of valid targets with manual override
-                    targets = get_valid_targets(val)
-                    if targets:
-                        row_widgets = self.job_rows.get(job.filepath)
-                        if row_widgets:
-                            # Update display label of input format
-                            row_widgets["fmt_lbl"].configure(text=val)
-
-                            # Reconfigure the output option menu with new valid targets
-                            row_widgets["menu"].configure(values=targets)
-
-                            # If current job target format is not valid for the new input format, update it
-                            if job.target_format not in targets:
-                                job.target_format = targets[0]
-                                row_widgets["var"].set(targets[0])
-
-    def _on_global_target_changed(self, val):
-        # Update target formats of queued files if valid
-        with self._jobs_lock:
-            for job in self.jobs:
-                if job.status == "Queued":
-                    row_widgets = self.job_rows.get(job.filepath)
-                    if row_widgets:
-                        current_in_fmt = row_widgets["fmt_lbl"].cget("text")
-                        valid = get_valid_targets(current_in_fmt)
-                        if val in valid:
-                            job.target_format = val
-                            row_widgets["var"].set(val)
-
     def _clear_all(self):
         if self._converting:
             return
         with self._jobs_lock:
             self.jobs.clear()
-        self.job_rows.clear()
-        for w in self.file_list.winfo_children():
-            w.destroy()
-        self._update_status()
+            self.selected_job_index = None
+        self._refresh_queue_ui()
+        self._refresh_selected_info()
 
-    # ── Conversion ────────────────────────────────────────────────────────────
+    def _remove_job(self, index: int):
+        if self._converting:
+            return
+        with self._jobs_lock:
+            if 0 <= index < len(self.jobs):
+                self.jobs.pop(index)
+                if not self.jobs:
+                    self.selected_job_index = None
+                elif self.selected_job_index is not None:
+                    if self.selected_job_index >= len(self.jobs):
+                        self.selected_job_index = len(self.jobs) - 1
+        self._refresh_queue_ui()
+        self._refresh_selected_info()
+
+    def _select_job(self, index: int):
+        self.selected_job_index = index
+        self._refresh_queue_ui()
+        self._refresh_selected_info()
+
+    def _refresh_queue_ui(self):
+        # Clear current rows
+        for child in self.queue_list.winfo_children():
+            child.destroy()
+
+        with self._jobs_lock:
+            total = len(self.jobs)
+            self.queue_label.configure(text=f"📋 Queue ({total})")
+
+            for i, job in enumerate(self.jobs):
+                is_selected = (i == self.selected_job_index)
+                bg_col = "#202e52" if is_selected else BG_DARK
+                border_col = ACCENT_RED if is_selected else BORDER_DARK
+
+                item_frame = ctk.CTkFrame(
+                    self.queue_list,
+                    fg_color=bg_col,
+                    border_color=border_col,
+                    border_width=1,
+                    corner_radius=8,
+                    height=44
+                )
+                item_frame.pack(fill="x", pady=3)
+                item_frame.pack_propagate(False)
+
+                info = detect_file(job.filepath)
+                fmt = info.get("format", "ISO")
+                badge_bg = info.get("badge_color", ACCENT_RED)
+
+                # Icon
+                icon = "📀" if fmt == "ISO" else "💿" if fmt in ("BIN", "CUE") else "📦"
+                ctk.CTkLabel(
+                    item_frame, text=icon, font=ctk.CTkFont(size=14)
+                ).pack(side="left", padx=(10, 4))
+
+                # Name
+                filename = os.path.basename(job.filepath)
+                ctk.CTkLabel(
+                    item_frame, text=filename,
+                    font=ctk.CTkFont(size=12, weight="bold" if is_selected else "normal"),
+                    text_color=TEXT_WHITE, anchor="w", width=180
+                ).pack(side="left", padx=4)
+
+                # Badge
+                badge = ctk.CTkLabel(
+                    item_frame, text=f" {fmt} ",
+                    font=ctk.CTkFont(size=10, weight="bold"),
+                    fg_color=badge_bg, text_color=TEXT_WHITE, corner_radius=4
+                )
+                badge.pack(side="right", padx=(4, 10))
+
+                # Bind click selection
+                for w in (item_frame, badge):
+                    w.bind("<Button-1>", lambda e, idx=i: self._select_job(idx))
+                    w.configure(cursor="hand2")
+
+    def _refresh_selected_info(self):
+        # Clear target output buttons
+        for child in self.target_buttons_frame.winfo_children():
+            child.destroy()
+
+        if self.selected_job_index is None or self.selected_job_index >= len(self.jobs):
+            self.info_icon_title.configure(text="📀 No File Selected")
+            self.info_meta.configure(text="Select or drop a file to configure conversion")
+            self.cmd_selected_lbl.configure(text="➜ Select target output format")
+            self.cmd_str_lbl.configure(text="Command will appear here...")
+            return
+
+        job = self.jobs[self.selected_job_index]
+        info = detect_file(job.filepath)
+
+        filename = os.path.basename(job.filepath)
+        fmt      = info.get("format", "ISO")
+        size_str = info.get("size_str", "Unknown size")
+        platform = info.get("platform", "ROM")
+
+        icon = "📀" if fmt == "ISO" else "💿" if fmt in ("BIN", "CUE") else "📦"
+        self.info_icon_title.configure(text=f"{icon} {filename}")
+        self.info_meta.configure(text=f"{size_str} • {fmt} • {platform}")
+
+        valid_targets = info.get("valid_targets", [])
+        if not valid_targets:
+            valid_targets = ["CHD"]
+
+        if job.target_format not in valid_targets:
+            job.target_format = valid_targets[0]
+
+        self.selected_target.set(job.target_format)
+
+        # Build output format buttons (clickable buttons with active border matching accent)
+        for target in valid_targets:
+            is_active = (target == job.target_format)
+            btn = ctk.CTkButton(
+                self.target_buttons_frame,
+                text=target,
+                width=72, height=36,
+                fg_color=CARD_BG,
+                hover_color="#202e52",
+                border_color=ACCENT_RED if is_active else BORDER_DARK,
+                border_width=2 if is_active else 1,
+                text_color=TEXT_WHITE,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                command=lambda t=target: self._set_target_format(t)
+            )
+            btn.pack(side="left", padx=4, pady=4)
+
+        self._update_command_preview(fmt, job.target_format, filename)
+
+    def _set_target_format(self, target: str):
+        if self.selected_job_index is not None and self.selected_job_index < len(self.jobs):
+            self.jobs[self.selected_job_index].target_format = target
+            self.selected_target.set(target)
+            self._refresh_selected_info()
+
+    def _on_compression_changed(self, val):
+        if self.selected_job_index is not None and self.selected_job_index < len(self.jobs):
+            self.jobs[self.selected_job_index].compression = val
+            self._refresh_selected_info()
+
+    def _update_command_preview(self, fmt: str, target: str, filename: str):
+        self.cmd_selected_lbl.configure(text=f"➜ {target} selected")
+        cmd_str = get_command_preview(fmt, target, filename)
+        self.cmd_str_lbl.configure(text=cmd_str)
+
+    # ── Conversion Execution ─────────────────────────────────────────────────
 
     def _start_conversion(self):
-        with self._jobs_lock:
-            queued = [j for j in self.jobs if j.status == "Queued"]
-        if self._converting or not queued:
+        if not self.jobs or self._converting:
             return
+
         self._converting = True
-        self.start_btn.configure(
-            text="⏹  STOP", fg_color=RED,
-            command=self._stop_conversion)
+        self.convert_btn.configure(state="disabled")
         self.cancel_btn.configure(state="normal")
+        self.progress_bar.set(0)
 
         def run():
             with self._jobs_lock:
-                jobs_snap = list(self.jobs)
-            for job in jobs_snap:
+                jobs_to_run = list(self.jobs)
+
+            for i, job in enumerate(jobs_to_run):
                 if self.converter._stop_flag:
                     break
-                if job.status != "Queued":
-                    continue
 
-                # Resolve output dir
-                if self.same_as_src.get():
-                    job.output_dir = os.path.dirname(job.filepath)
-                else:
-                    job.output_dir = self.output_dir.get() or os.path.dirname(job.filepath)
-
-                job.compression = self.compression.get()
-                self._set_row_status(job.filepath, "Converting...", CYAN)
+                job.verify = self.verify_after.get()
+                log(f"[BATCH] Starting conversion {i+1}/{len(jobs_to_run)}: {os.path.basename(job.filepath)}")
 
                 ok = self.converter.convert(job)
 
                 if ok:
-                    self._set_row_status(job.filepath, "✅ Done", GREEN)
-                    if self.verify_after.get() and job.target_format == "CHD":
-                        out = os.path.join(
-                            job.output_dir,
-                            os.path.splitext(os.path.basename(job.filepath))[0] + ".chd"
-                        )
-                        verify_chd(out, on_log=self._append_log)
-                    if self.delete_src.get():
-                        try:
-                            os.remove(job.filepath)
-                        except Exception:
-                            pass
+                    log(f"[BATCH] Completed: {os.path.basename(job.filepath)}")
                 else:
-                    self._set_row_status(job.filepath, "❌ Failed", RED)
+                    log(f"[BATCH] Failed: {os.path.basename(job.filepath)}")
 
             self._converting = False
-            self.after(0, self._conversion_done)
+            self.after(0, self._conversion_finished)
 
         threading.Thread(target=run, daemon=True).start()
 
     def _stop_conversion(self):
         self.converter.stop()
         self._converting = False
-        self._conversion_done()
+        self._conversion_finished()
 
-    def _conversion_done(self):
-        self.start_btn.configure(
-            text="▶  START CONVERSION",
-            fg_color=CYAN2,
-            command=self._start_conversion,
-        )
+    def _conversion_finished(self):
+        self.convert_btn.configure(state="normal")
         self.cancel_btn.configure(state="disabled")
         self.progress_bar.set(1.0)
-        self._update_status()
-        self._append_log("> All jobs finished")
+        self._refresh_queue_ui()
+        self._refresh_selected_info()
 
-    def _set_row_status(self, filepath: str, text: str, color: str):
-        def _do():
-            row = self.job_rows.get(filepath)
-            if row:
-                row["status"].configure(text=text, text_color=color)
-        self.after(0, _do)
+    def _on_log_msg(self, msg: str):
+        # Callback for log updates
+        pass
 
     def _on_progress(self, job: ConversionJob, pct: float):
         def _do():
-            row = self.job_rows.get(job.filepath)
-            if row:
-                row["progress"].set(pct / 100)
-            with self._jobs_lock:
-                total = len(self.jobs)
-                done  = sum(1 for j in self.jobs if j.status == "Done")
-            if total:
-                self.progress_bar.set(done / total)
+            self.progress_bar.set(pct / 100.0)
         self.after(0, _do)
 
-    # ── Extraction ────────────────────────────────────────────────────────────
-
-    def _extract_files(self, paths: list):
-        self.ext_files = [p for p in paths if p.lower().endswith(".chd")]
-        self._append_log(f"> {len(self.ext_files)} CHD file(s) queued for extraction")
-
-    def _start_extraction(self):
-        if not self.ext_files:
-            return
-
-        def run():
-            for fp in self.ext_files:
-                info = detect_file(fp)
-                job = ConversionJob(
-                    filepath=fp,
-                    output_dir=os.path.dirname(fp),
-                    target_format=self.ext_fmt.get(),
-                    compression="Normal",
-                )
-                self.converter.convert(job)
-            self._append_log("> Extraction complete")
-
-        threading.Thread(target=run, daemon=True).start()
-
-    # ── UI helpers ────────────────────────────────────────────────────────────
-
-    def _browse_output(self):
-        folder = filedialog.askdirectory()
-        if folder:
-            self.output_dir.set(folder)
-            self.same_as_src.set(False)
-            self.out_entry.configure(state="normal")
-
-    def _toggle_same_src(self):
-        if self.same_as_src.get():
-            self.out_entry.configure(state="disabled")
-        else:
-            self.out_entry.configure(state="normal")
-
-    def _append_log(self, msg: str):
-        def _do():
-            self.log_box.configure(state="normal")
-
-            # If log message is error/warning/failed, highlight or print differently
-            # Specifically requested styling errors in red
-            is_error = "[ERROR]" in msg or "❌" in msg or "failed" in msg.lower()
-
-            start_idx = self.log_box.index("end-1c")
-            self.log_box.insert("end", msg + "\n")
-            end_idx = self.log_box.index("end-1c")
-
-            if is_error:
-                # Add a tag "error" to this line
-                self.log_box.tag_add("error", start_idx, end_idx)
-                self.log_box.tag_config("error", foreground=RED)
-
-            self.log_box.see("end")
-            self.log_box.configure(state="disabled")
-        self.after(0, _do)
-
-    def _clear_log(self):
-        self.log_box.configure(state="normal")
-        self.log_box.delete("1.0", "end")
-        self.log_box.configure(state="disabled")
-
-    def _update_status(self):
-        with self._jobs_lock:
-            total = len(self.jobs)
-            done  = sum(1 for j in self.jobs if j.status == "Done")
-        self.status_label.configure(
-            text=f"Queue: {total} file(s)  |  Done: {done}  |  "
-                 f"Status: {'Converting...' if self._converting else 'Idle'}"
-        )
+    # ── Dialogs ───────────────────────────────────────────────────────────────
 
     def _open_settings(self):
         SettingsWindow(self)
 
-    def _open_url(self, url: str):
-        import webbrowser
-        webbrowser.open(url)
+    def _open_about(self):
+        AboutWindow(self)
