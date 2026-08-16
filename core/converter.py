@@ -4,7 +4,8 @@ import threading
 import shutil
 from typing import Callable
 from core.detector import (
-    get_chdman_path, get_tool_path, detect_file, get_valid_targets
+    get_chdman_path, get_tool_path, detect_file, get_valid_targets,
+    get_extension, get_output_name
 )
 from core.logger import log as global_log
 from core.validator import verify_chd
@@ -202,35 +203,24 @@ class Converter:
 
     def _to_ecm(self, job: ConversionJob, src: str) -> bool:
         ecm = get_tool_path("ecm")
-        out = self._out_path(job, src, os.path.splitext(src)[1] + ".ecm")
+        out = self._out_path(job, src, "ecm")
         cmd = [ecm, src, out]
         self._log(f"[ECM] {os.path.basename(src)} → {os.path.basename(out)}")
         return self._run(cmd, job)
 
     def _from_ecm(self, job: ConversionJob, src: str, tgt: str) -> bool:
         unecm = get_tool_path("unecm")
-        base = os.path.basename(src)
-        if base.lower().endswith(".ecm"):
-            base = base[:-4]
-
-        # Determine output format after unecm extraction
-        inner_ext = os.path.splitext(base)[1].lower()
-        if not inner_ext:
-            inner_ext = ".iso" if tgt == "ISO" else ".bin"
-            base = base + inner_ext
-
-        out = os.path.join(job.output_dir, base)
+        out = self._out_path(job, src, tgt)
         cmd = [unecm, src, out]
         self._log(f"[UNECM] {os.path.basename(src)} → {os.path.basename(out)}")
 
         ok = self._run(cmd, job)
         if ok and os.path.isfile(out):
             # Auto-detect format of extracted file and rename if requested format differs
-            detected = detect_file(out)
-            ext_found = os.path.splitext(out)[1].lower()
-            target_ext = f".{tgt.lower()}"
-            if target_ext in (".iso", ".bin") and ext_found != target_ext:
-                new_out = os.path.splitext(out)[0] + target_ext
+            ext_found = get_extension(out)
+            target_ext = tgt.lower()
+            if target_ext in ("iso", "bin") and ext_found != target_ext:
+                new_out = os.path.join(job.output_dir, get_output_name(os.path.basename(out), target_ext))
                 try:
                     shutil.move(out, new_out)
                     self._log(f"[UNECM AUTO-DETECT] Renamed output to: {os.path.basename(new_out)}")
@@ -250,7 +240,7 @@ class Converter:
     def _xiso_to_iso(self, job: ConversionJob, src: str) -> bool:
         """XISO → ISO via extract-xiso -x"""
         xiso = get_tool_path("xiso")
-        base = os.path.splitext(os.path.basename(src))[0]
+        base = os.path.basename(src).rsplit('.', 1)[0]
         out_dir = os.path.join(job.output_dir, base)
         cmd  = [xiso, "-x", src, "-d", out_dir]
         self._log(f"[XISO→ISO] Extracting XISO {os.path.basename(src)} to {out_dir}...")
@@ -294,8 +284,8 @@ class Converter:
             return False
 
     def _out_path(self, job: ConversionJob, src: str, ext: str) -> str:
-        base = os.path.splitext(os.path.basename(src))[0]
-        return os.path.join(job.output_dir, base + ext)
+        out_name = get_output_name(os.path.basename(src), ext)
+        return os.path.join(job.output_dir, out_name)
 
     def _log(self, msg: str):
         global_log(msg)
@@ -314,7 +304,7 @@ class Converter:
                 pass
 
     def _auto_cue(self, bin_path: str, output_dir: str) -> str | None:
-        base = os.path.splitext(os.path.basename(bin_path))[0]
+        base = os.path.basename(bin_path).rsplit('.', 1)[0]
         cue_path = os.path.join(output_dir, base + "_auto.cue")
         bin_name = os.path.basename(bin_path)
         try:
