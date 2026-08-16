@@ -1,59 +1,63 @@
-# ⬡ OpenROM
+# ⬡ OpenROM v2.0
 **Universal ROM Compression Suite** — by M5 Dev
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-cyan)]()
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-cyan)]()
 
-> Convert, compress, and extract ROM files with one click.  
-> No terminal. No confusion. Just drop and go.
-
----
-
-## Supported Formats
-
-| Input | Output | Platform |
-|-------|--------|----------|
-| ISO, BIN/CUE, GDI, IMG, ECM | CHD | PS1, PS2, Dreamcast, GameCube |
-| ISO | CSO | PSP / PS2 |
-| BIN / ISO | ECM | PS1 / CD-ROM |
-| Xbox ISO | XISO | Original Xbox |
-| CHD | ISO / BIN | Any |
+OpenROM is a Universal ROM Compression Suite built to break the monopoly of proprietary ROM tools. It features a modern two-column UI design, real-time command line terminal logging, batch processing, and direct single-click conversions.
 
 ---
 
-## Features
+## 🎮 Features
 
-- Drag & Drop support
-- Batch folder conversion
-- Auto ECM decode before conversion
-- Auto CUE generation for lone BIN files
-- CHD verification after conversion
-- Portable + Installer editions
-- Dark theme, Ko-fi donate button
-
----
-
-## Tools Bundled
-
-- [chdman](https://www.mamedev.org/) — MAME CHD tool
-- [maxcso](https://github.com/unknownbrackets/maxcso) — PSP CSO compression
-- [ecm/unecm](https://github.com/37712/ECM-Tools) — ECM encode/decode
-- [extract-xiso](https://github.com/XboxDev/extract-xiso) — Xbox XISO tool
+- **Modern Two-Column Design**: Clean split interface with DROP ZONE & Queue on the left, and Conversion Settings / Controls on the right.
+- **Complete Conversion Matrix**: Support for over 15+ conversion paths including ISO, BIN, CUE, GDI, IMG, ECM, CHD, CSO, ZSO, and XISO.
+- **Live Terminal & Logging**: Terminal startup banner ("OpenROM v2.0 - Starting...") and live process logging saved to `logs/openrom_YYYY-MM-DD_HH-MM-SS.log`.
+- **Auto CUE Generation**: Auto-generates CUE files for standalone BIN files missing CUE sheets.
+- **Auto ECM Output Format**: Auto-detects extracted format (ISO/BIN) after ECM decompression.
+- **Integrity Verification**: Automatic post-conversion integrity check for CHD files via `chdman verify`.
+- **Drag & Drop**: Native drag and drop support for single files and batch folders.
 
 ---
 
-## Installation
+## 🔁 Complete Conversion Matrix
 
-### Portable
-Download `OpenROM-portable.zip`, extract, run `OpenROM.exe`
-
-### Installer
-Download `OpenROM-setup.exe`, follow wizard
+| Input Format | Output Target | Tool Used | Command Executed |
+|--------------|---------------|-----------|------------------|
+| ISO | CHD | chdman | `createdvd -i in -o out` |
+| ISO | CSO | maxcso | `maxcso in -o out` |
+| ISO | ECM | ecm | `ecm in out` |
+| ISO | XISO | extract-xiso | `-r in` |
+| BIN | CHD | chdman | `createcd -i cue -o out` *(Auto CUE if missing)* |
+| BIN | ECM | ecm | `ecm in out` |
+| CUE | CHD | chdman | `createcd -i in -o out` |
+| GDI | CHD | chdman | `createcd -i in -o out` |
+| IMG | CHD | chdman | `createdvd -i in -o out` |
+| CHD | ISO | chdman | `extractdvd -i in -o out` |
+| CHD | BIN/CUE | chdman | `extractcd -i in -o out.cue` |
+| CSO | ISO | maxcso | `--decompress in -o out` |
+| ZSO | ISO | maxcso | `--decompress in -o out` |
+| ECM | ISO / BIN | unecm | `unecm in out` *(Auto-detects output format)* |
+| XISO | ISO | extract-xiso | `-x in -d out` |
 
 ---
 
-## Build from Source
+## 🛠️ Tools Bundled
 
+- **chdman** (MAME CHD tool)
+- **maxcso** (PSP/PS2 CSO/ZSO tool)
+- **ecm / unecm** (Error Code Modulator compression)
+- **extract-xiso** (Xbox ISO extraction & creation tool)
+
+---
+
+## 🚀 Building & Running
+
+### Requirements
+- Python 3.10+
+- Dependencies in `requirements.txt`
+
+### Running from Source
 ```bash
 git clone https://github.com/M5Devs/OpenROM
 cd OpenROM
@@ -61,21 +65,12 @@ pip install -r requirements.txt
 python main.py
 ```
 
-To build .exe:
-```bash
-build.bat
-```
-
 ---
 
-## License
+## 📄 License & Support
 
-GPL v3 — See [LICENSE](LICENSE)
+OpenROM is licensed under **GPL v3**.
 
----
-
-## Support
-
-
-
-Made with ❤️ by [M5 Dev](https://github.com/M5Devs) —
+### 💙 Support OpenROM
+Donate USDT (TRC20) to support active open-source development:
+`TWbG9smLbcyTcVod3YsRPyEtWhtQnnu7vC`

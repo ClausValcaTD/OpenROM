@@ -1,26 +1,29 @@
 import os
 import subprocess
 import threading
+import shutil
 from typing import Callable
 from core.detector import (
     get_chdman_path, get_tool_path, detect_file, get_valid_targets
 )
+from core.logger import log as global_log
+from core.validator import verify_chd
 
-# ── Compression codec map (chdman documented values only) ────────────────────
 CHD_COMPRESSION = {
     "Normal": "none",
     "High":   "cdlz",
-    "Max":    "cdlz,zlib,flac",   # zstd not in this chdman build; flac is confirmed
+    "Max":    "cdlz,zlib,flac",
 }
 
 
 class ConversionJob:
     def __init__(self, filepath: str, output_dir: str,
-                 target_format: str, compression: str = "High"):
+                 target_format: str, compression: str = "Normal", verify: bool = False):
         self.filepath      = filepath
         self.output_dir    = output_dir
-        self.target_format = target_format   # "CHD","CSO","XISO","ECM","ISO","BIN"
+        self.target_format = target_format   # "CHD","CSO","XISO","ECM","ISO","BIN","BIN/CUE"
         self.compression   = compression     # "Normal","High","Max"
+        self.verify        = verify
         self.status        = "Queued"        # Queued|Converting|Done|Failed
         self.progress      = 0.0
         self.log_lines     = []
@@ -30,7 +33,7 @@ class ConversionJob:
 
 class Converter:
     def __init__(self, on_log: Callable = None, on_progress: Callable = None):
-        self.on_log      = on_log or (lambda msg: None)
+        self.on_log_cb   = on_log
         self.on_progress = on_progress or (lambda job, pct: None)
         self._stop_flag  = False
         self._lock       = threading.Lock()
@@ -38,13 +41,19 @@ class Converter:
     def stop(self):
         self._stop_flag = True
 
-    # ── public API ────────────────────────────────────────────────────────────
-
     def convert(self, job: ConversionJob) -> bool:
         self._stop_flag = False
         job.status = "Converting"
         try:
             ok = self._dispatch(job)
+            if ok and job.verify and job.target_format.upper() == "CHD":
+                chd_out = self._out_path(job, job.filepath, ".chd")
+                if os.path.isfile(chd_out):
+                    self._log(f"[VERIFY] Verifying CHD integrity: {os.path.basename(chd_out)}")
+                    ver_ok = verify_chd(chd_out, on_log=self._log)
+                    if not ver_ok:
+                        ok = False
+
             job.status = "Done" if ok else "Failed"
             return ok
         except Exception as e:
@@ -75,60 +84,44 @@ class Converter:
             self._log(f"[ERROR] {info['error']}")
             return False
 
-        # ECM decode first if needed
-        if info.get("needs_ecm_decode"):
-            src = self._unecm(job, src)
-            if not src:
-                return False
-            info = detect_file(src)
-
         fmt = info.get("format", "UNKNOWN")
         tgt = job.target_format.upper()
 
-        # ── Validate conversion is supported ──────────────────────────────────
+        # Handle ECM input directly
+        if fmt == "ECM":
+            return self._from_ecm(job, src, tgt)
+
         valid = get_valid_targets(fmt)
-        if tgt not in valid:
+        if tgt not in valid and tgt != "BIN/CUE":
             self._log(
                 f"[ERROR] Cannot convert {fmt} → {tgt}. "
                 f"Supported targets for {fmt}: {', '.join(valid) if valid else 'none'}"
             )
             return False
 
-        # ── Route to correct handler ──────────────────────────────────────────
-        # → CHD
+        # Route conversion matrix
         if tgt == "CHD":
             return self._to_chd(job, src, fmt, info)
 
-        # CHD → ISO / BIN
-        if fmt == "CHD" and tgt in ("ISO", "BIN"):
+        if fmt == "CHD" and tgt in ("ISO", "BIN", "BIN/CUE"):
             return self._from_chd(job, src, tgt, info)
 
-        # → CSO  (ISO only)
         if tgt == "CSO":
             return self._to_cso(job, src)
 
-        # CSO / ZSO → ISO
         if fmt in ("CSO", "ZSO") and tgt == "ISO":
             return self._cso_to_iso(job, src)
 
-        # → ECM  (ISO / BIN)
         if tgt == "ECM":
             return self._to_ecm(job, src)
 
-        # ECM → ISO  (already decoded above via _unecm; just rename/move)
-        # src is now the decoded BIN — rename to .iso if requested
-        if fmt == "ECM" and tgt == "ISO":
-            return self._move_to_iso(job, src)
-
-        # XISO → ISO
         if fmt == "XISO" and tgt == "ISO":
             return self._xiso_to_iso(job, src)
 
-        # ISO → XISO
         if tgt == "XISO":
             return self._to_xiso(job, src)
 
-        self._log(f"[ERROR] Unhandled route: {fmt} → {tgt}")
+        self._log(f"[ERROR] Unhandled conversion route: {fmt} → {tgt}")
         return False
 
     # ── CHD conversion ────────────────────────────────────────────────────────
@@ -137,8 +130,7 @@ class Converter:
         chdman = get_chdman_path()
         out    = self._out_path(job, src, ".chd")
 
-        # CD-based formats → createcd; DVD/ISO → createdvd
-        if fmt in ("GDI", "CUE", "BIN", "CDI", "ECM"):
+        if fmt in ("GDI", "CUE", "BIN", "CDI"):
             sub_cmd = "createcd"
         elif fmt in ("ISO", "IMG"):
             sub_cmd = "createdvd"
@@ -148,32 +140,33 @@ class Converter:
         cmd = [chdman, sub_cmd, "-i", src, "-o", out,
                "--compression", CHD_COMPRESSION.get(job.compression, "cdlz")]
 
-        # BIN without CUE → generate a minimal CUE
-        if fmt == "BIN" and not info.get("paired_cue"):
-            cue_path = self._auto_cue(src, job.output_dir)
-            if cue_path:
-                job._temp_files.append(cue_path)
-                # chdman needs the CUE as input, not the BIN
+        # BIN without CUE → auto-generate CUE file if missing before running chdman
+        if fmt == "BIN":
+            cue_input = info.get("paired_cue")
+            if not cue_input:
+                cue_input = self._auto_cue(src, job.output_dir)
+                if cue_input:
+                    job._temp_files.append(cue_input)
+            if cue_input:
                 idx = cmd.index(src)
-                cmd[idx] = cue_path
+                cmd[idx] = cue_input
 
         self._log(f"[CHD] {os.path.basename(src)} → {os.path.basename(out)}")
         return self._run(cmd, job)
 
     def _from_chd(self, job: ConversionJob, src: str, tgt: str, info: dict) -> bool:
         chdman   = get_chdman_path()
-        chd_type = info.get("chd_type", "cd")   # 'cd' or 'dvd'
+        chd_type = info.get("chd_type", "cd")
 
-        if tgt == "BIN":
-            out     = self._out_path(job, src, ".bin")
+        if tgt in ("BIN", "BIN/CUE"):
             cue_out = self._out_path(job, src, ".cue")
+            bin_out = self._out_path(job, src, ".bin")
             if chd_type == "dvd":
-                # DVD CHD → extractdvd gives ISO; BIN not meaningful, warn user
-                self._log("[WARN] DVD-type CHD extracted as ISO (BIN not applicable for DVDs)")
+                self._log("[WARN] DVD-type CHD extracted as ISO (BIN/CUE is for CD images)")
                 out = self._out_path(job, src, ".iso")
                 cmd = [chdman, "extractdvd", "-i", src, "-o", out]
             else:
-                cmd = [chdman, "extractcd", "-i", src, "-o", cue_out, "--outputbin", out]
+                cmd = [chdman, "extractcd", "-i", src, "-o", cue_out, "--outputbin", bin_out]
         else:  # ISO
             out = self._out_path(job, src, ".iso")
             if chd_type == "dvd":
@@ -181,13 +174,12 @@ class Converter:
             else:
                 cmd = [chdman, "extractcd", "-i", src, "-o", out]
 
-        self._log(f"[EXTRACT] {os.path.basename(src)} → {os.path.basename(out)}")
+        self._log(f"[CHD EXTRACT] {os.path.basename(src)} → {tgt}")
         return self._run(cmd, job)
 
     # ── CSO conversion ────────────────────────────────────────────────────────
 
     def _to_cso(self, job: ConversionJob, src: str) -> bool:
-        """ISO → CSO via maxcso."""
         maxcso  = get_tool_path("maxcso")
         out     = self._out_path(job, src, ".cso")
         threads = os.cpu_count() or 2
@@ -200,7 +192,6 @@ class Converter:
         return self._run(cmd, job)
 
     def _cso_to_iso(self, job: ConversionJob, src: str) -> bool:
-        """CSO/ZSO → ISO via maxcso --decompress."""
         maxcso = get_tool_path("maxcso")
         out    = self._out_path(job, src, ".iso")
         cmd    = [maxcso, "--decompress", src, "-o", out]
@@ -216,79 +207,53 @@ class Converter:
         self._log(f"[ECM] {os.path.basename(src)} → {os.path.basename(out)}")
         return self._run(cmd, job)
 
-    def _unecm(self, job: ConversionJob, src: str) -> str | None:
-        """Decode ECM → raw BIN/ISO into output_dir."""
+    def _from_ecm(self, job: ConversionJob, src: str, tgt: str) -> bool:
         unecm = get_tool_path("unecm")
-        # strip .ecm suffix
-        inner = src[:-4] if src.lower().endswith(".ecm") else src + ".bin"
-        out   = os.path.join(job.output_dir, os.path.basename(inner))
-        job._temp_files.append(out)
-        cmd   = [unecm, src, out]
-        self._log(f"[UNECM] {os.path.basename(src)} → {os.path.basename(out)}")
-        ok = self._run(cmd, job)
-        return out if ok else None
+        base = os.path.basename(src)
+        if base.lower().endswith(".ecm"):
+            base = base[:-4]
 
-    def _move_to_iso(self, job: ConversionJob, src: str) -> bool:
-        """After ECM decode, rename decoded file to .iso if needed."""
-        out = self._out_path(job, src, ".iso")
-        if src == out:
-            return True
-        try:
-            import shutil
-            shutil.move(src, out)
-            # remove from temp so cleanup doesn't delete it
-            if src in job._temp_files:
-                job._temp_files.remove(src)
-            self._log(f"[RENAME] → {os.path.basename(out)}")
-            return True
-        except Exception as e:
-            self._log(f"[ERROR] rename failed: {e}")
-            return False
+        # Determine output format after unecm extraction
+        inner_ext = os.path.splitext(base)[1].lower()
+        if not inner_ext:
+            inner_ext = ".iso" if tgt == "ISO" else ".bin"
+            base = base + inner_ext
+
+        out = os.path.join(job.output_dir, base)
+        cmd = [unecm, src, out]
+        self._log(f"[UNECM] {os.path.basename(src)} → {os.path.basename(out)}")
+
+        ok = self._run(cmd, job)
+        if ok and os.path.isfile(out):
+            # Auto-detect format of extracted file and rename if requested format differs
+            detected = detect_file(out)
+            ext_found = os.path.splitext(out)[1].lower()
+            target_ext = f".{tgt.lower()}"
+            if target_ext in (".iso", ".bin") and ext_found != target_ext:
+                new_out = os.path.splitext(out)[0] + target_ext
+                try:
+                    shutil.move(out, new_out)
+                    self._log(f"[UNECM AUTO-DETECT] Renamed output to: {os.path.basename(new_out)}")
+                except Exception as e:
+                    self._log(f"[WARN] Failed to rename {out} to {new_out}: {e}")
+        return ok
 
     # ── XISO conversion ───────────────────────────────────────────────────────
 
     def _to_xiso(self, job: ConversionJob, src: str) -> bool:
-        """ISO → XISO via two steps:
-           1. extract-xiso -x  → extract files into a temp dir
-           2. extract-xiso -c  → pack that dir into a new XISO
-        extract-xiso cannot take a raw ISO directly for creation.
-        """
-        import shutil
-        xiso     = get_tool_path("xiso")
-        base     = os.path.splitext(os.path.basename(src))[0]
-        tmp_dir  = os.path.join(job.output_dir, f"_xiso_tmp_{base}")
-        out_name = base + ".iso"          # extract-xiso names output <dir>.iso
-        out_path = os.path.join(job.output_dir, out_name)
-
-        self._log(f"[→XISO] Step 1/2 — extracting files from ISO...")
-        cmd_extract = [xiso, "-x", src, "-d", tmp_dir]
-        ok = self._run(cmd_extract, job)
-        if not ok:
-            self._log("[→XISO] ❌ Extraction step failed")
-            return False
-
-        self._log(f"[→XISO] Step 2/2 — packing XISO from extracted files...")
-        cmd_create = [xiso, "-c", tmp_dir, out_path]
-        ok = self._run(cmd_create, job)
-
-        # Always clean up temp dir
-        try:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-        except Exception:
-            pass
-
-        if ok:
-            self._log(f"[→XISO] ✅ Created: {out_name}")
-        return ok
+        """ISO → XISO via extract-xiso -r"""
+        xiso = get_tool_path("xiso")
+        cmd  = [xiso, "-r", src]
+        self._log(f"[XISO] {os.path.basename(src)} — generating XISO...")
+        return self._run(cmd, job)
 
     def _xiso_to_iso(self, job: ConversionJob, src: str) -> bool:
-        """XISO → ISO via extract-xiso -r
-        -r rewrites the XISO as an optimized XISO (removes padding/gaps).
-        Output is a leaner .iso still readable as XISO by Xbox/emulators.
-        """
+        """XISO → ISO via extract-xiso -x"""
         xiso = get_tool_path("xiso")
-        cmd  = [xiso, "-r", src, "-d", job.output_dir]
-        self._log(f"[XISO→ISO] {os.path.basename(src)} — rewriting (strip padding)...")
+        base = os.path.splitext(os.path.basename(src))[0]
+        out_dir = os.path.join(job.output_dir, base)
+        cmd  = [xiso, "-x", src, "-d", out_dir]
+        self._log(f"[XISO→ISO] Extracting XISO {os.path.basename(src)} to {out_dir}...")
         return self._run(cmd, job)
 
     # ── helpers ───────────────────────────────────────────────────────────────
@@ -317,12 +282,12 @@ class Converter:
                     return False
             proc.wait()
             if proc.returncode == 0:
-                self._log("  ✅ Done")
+                self._log("  ✅ Command executed successfully")
                 job.progress = 100.0
                 self.on_progress(job, 100.0)
                 return True
             else:
-                self._log(f"  ❌ Exit code {proc.returncode}")
+                self._log(f"  ❌ Process returned exit code {proc.returncode}")
                 return False
         except FileNotFoundError:
             self._log(f"  ❌ Tool not found: {cmd[0]}")
@@ -333,7 +298,12 @@ class Converter:
         return os.path.join(job.output_dir, base + ext)
 
     def _log(self, msg: str):
-        self.on_log(msg)
+        global_log(msg)
+        if self.on_log_cb:
+            try:
+                self.on_log_cb(msg)
+            except Exception:
+                pass
 
     def _cleanup(self, job: ConversionJob):
         for f in job._temp_files:
@@ -344,15 +314,15 @@ class Converter:
                 pass
 
     def _auto_cue(self, bin_path: str, output_dir: str) -> str | None:
-        """Generate minimal CUE for a single-track BIN — written to output_dir."""
-        base     = os.path.splitext(os.path.basename(bin_path))[0]
+        base = os.path.splitext(os.path.basename(bin_path))[0]
         cue_path = os.path.join(output_dir, base + "_auto.cue")
         bin_name = os.path.basename(bin_path)
         try:
-            with open(cue_path, "w") as f:
+            with open(cue_path, "w", encoding="utf-8") as f:
                 f.write(f'FILE "{bin_name}" BINARY\n')
                 f.write("  TRACK 01 MODE2/2352\n")
                 f.write("    INDEX 01 00:00:00\n")
+            self._log(f"[AUTO-CUE] Generated missing CUE file: {os.path.basename(cue_path)}")
             return cue_path
         except Exception as e:
             self._log(f"[WARN] Could not write auto CUE: {e}")
