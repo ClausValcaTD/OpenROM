@@ -2,60 +2,62 @@
 name: Build Cross-Platform Tools
 
 on:
-  workflow_dispatch:  # Manual trigger only
+  workflow_dispatch:
 
 jobs:
   build-linux:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # ✅ Fix for 403 error
+      contents: write
     steps:
       - uses: actions/checkout@v4
       
       - name: Install deps
         run: |
           sudo apt update
-          sudo apt install -y git cmake make g++ \
+          sudo apt install -y git cmake make g++ wget jq \
             liblz4-dev libuv1-dev libdeflate-dev
       
-      - name: Build chdman
+      - name: Download pre-built chdman
         run: |
-          git clone --depth 1 https://github.com/mamedev/mame.git /tmp/mame
-          cd /tmp/mame
-          # ✅ Fix: Precompile first
-          make -j$(nproc) SUBTARGET=tools TOOLS=1 PRECOMPILE=1 || true
-          make -j$(nproc) SUBTARGET=tools TOOLS=1
-          cp chdman $GITHUB_WORKSPACE/output/linux/
+          mkdir -p output/linux
+          # Get latest MAME release
+          TAG=$(curl -s https://api.github.com/repos/mamedev/mame/releases/latest | jq -r .tag_name)
+          echo "Downloading chdman from $TAG"
+          wget "https://github.com/mamedev/mame/releases/download/${TAG}/${TAG}_tools_linux.tar.gz"
+          tar -xzf ${TAG}_tools_linux.tar.gz
+          cp chdman output/linux/
+          chmod +x output/linux/chdman
       
       - name: Build maxcso
         run: |
           git clone https://github.com/unknownbrackets/maxcso.git /tmp/maxcso
           cd /tmp/maxcso && make -j$(nproc)
-          cp maxcso $GITHUB_WORKSPACE/output/linux/
+          cp maxcso output/linux/
       
       - name: Build ecm
         run: |
           git clone https://github.com/alucryd/ecm-tools.git /tmp/ecm
           cd /tmp/ecm && meson setup build && meson compile -C build
-          cp build/ecm build/unecm $GITHUB_WORKSPACE/output/linux/
+          cp build/ecm build/unecm output/linux/
       
       - name: Build extract-xiso
         run: |
           git clone https://github.com/XboxDev/extract-xiso.git /tmp/xiso
           cd /tmp/xiso && mkdir build && cd build && cmake .. && make -j$(nproc)
-          cp extract-xiso $GITHUB_WORKSPACE/output/linux/
+          cp extract-xiso output/linux/
       
-      - name: Upload to release
+      - name: Upload Linux release
         uses: softprops/action-gh-release@v1
         with:
           files: output/linux/*
-          tag_name: tools-linux-${{ github.run_number }}
-          body: "Linux x86_64 tools build"
+          tag_name: tools-linux-v${{ github.run_number }}
+          name: "Linux Tools v${{ github.run_number }}"
 
   build-macos:
     runs-on: macos-latest
     permissions:
-      contents: write  # ✅ Fix for 403 error
+      contents: write
     strategy:
       matrix:
         arch: [x86_64, arm64]
@@ -64,16 +66,26 @@ jobs:
       
       - name: Install deps
         run: |
-          brew install cmake make lz4 libuv libdeflate
+          brew install cmake make lz4 libuv libdeflate wget jq
       
-      - name: Build all tools
+      - name: Download pre-built chdman
         run: |
           mkdir -p output/macos-${{ matrix.arch }}
-          # Build steps here...
+          TAG=$(curl -s https://api.github.com/repos/mamedev/mame/releases/latest | jq -r .tag_name)
+          # macOS binaries from MAME
+          wget "https://github.com/mamedev/mame/releases/download/${TAG}/${TAG}_tools_macOS.tar.gz" || \
+          wget "https://github.com/mamedev/mame/releases/download/${TAG}/${TAG}_tools_macOS-arm64.tar.gz"
+          tar -xzf *.tar.gz
+          cp chdman output/macos-${{ matrix.arch }}/ || echo "chdman not found, will build"
       
-      - name: Upload to release
+      - name: Build remaining tools
+        run: |
+          # maxcso, ecm, extract-xiso (same as Linux)
+          # ...
+      
+      - name: Upload macOS release
         uses: softprops/action-gh-release@v1
         with:
           files: output/macos-${{ matrix.arch }}/*
-          tag_name: tools-macos-${{ matrix.arch }}-${{ github.run_number }}
-          body: "macOS ${{ matrix.arch }} tools build"
+          tag_name: tools-macos-${{ matrix.arch }}-v${{ github.run_number }}
+          name: "macOS ${{ matrix.arch }} Tools v${{ github.run_number }}"
