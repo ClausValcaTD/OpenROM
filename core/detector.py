@@ -75,6 +75,16 @@ COMMAND_TEMPLATES = {
     ("XISO", "ISO"): "extract-xiso -x \"{in}\" -d \"{out}\"",
 }
 
+def get_extension(filename: str) -> str:
+    return filename.lower().rsplit('.', 1)[-1]
+
+def get_output_name(input_file: str, new_ext: str) -> str:
+    clean_ext = new_ext.lstrip('.')
+    base = input_file.rsplit('.', 1)[0]
+    if base.lower().endswith(f".{clean_ext.lower()}"):
+        return base
+    return f"{base}.{clean_ext}"
+
 def get_badge_color(fmt: str) -> str:
     return FORMAT_COLORS.get(fmt.upper(), FORMAT_COLORS["UNKNOWN"])
 
@@ -87,9 +97,8 @@ def get_command_preview(fmt: str, target: str, filename: str = "game.iso") -> st
     if not template:
         return f"{fmt} -> {target}"
 
-    base = os.path.splitext(filename)[0]
-    out_ext = f".{target.lower().replace('/cue', '')}"
-    out = base + out_ext
+    out = get_output_name(filename, target.lower().replace('/cue', ''))
+    base = filename.rsplit('.', 1)[0]
     cue = base + ".cue"
 
     return template.format(
@@ -100,18 +109,13 @@ def detect_file(filepath: str) -> dict:
     if not os.path.isfile(filepath):
         return {"error": f"File not found: {filepath}"}
 
-    name = os.path.basename(filepath).lower()
-    ext = os.path.splitext(name)[1]
+    name = os.path.basename(filepath)
+    ext_str = get_extension(name)
+    ext = f".{ext_str}"
     size = os.path.getsize(filepath)
 
-    needs_ecm = False
-    real_ext = ext
-    if ext == ".ecm":
-        needs_ecm = True
-        inner = os.path.splitext(os.path.splitext(name)[0])[1]
-        real_ext = inner if inner in SUPPORTED_INPUT else ".ecm"
-
-    fmt = SUPPORTED_INPUT.get(real_ext, "UNKNOWN")
+    fmt = SUPPORTED_INPUT.get(ext, "UNKNOWN")
+    needs_ecm = (fmt == "ECM")
     plat = _guess_platform(filepath, fmt, size)
 
     chd_type = None
@@ -149,7 +153,7 @@ def detect_folder(folder: str) -> list:
         fpath = os.path.join(folder, fname)
         if not os.path.isfile(fpath):
             continue
-        ext = os.path.splitext(fname.lower())[1]
+        ext = f".{get_extension(fname)}"
         if ext in SUPPORTED_INPUT:
             info = detect_file(fpath)
             info["filepath"] = fpath
@@ -187,8 +191,8 @@ def _guess_chd_type(size: int) -> str:
     return "cd" if mb < 900 else "dvd"
 
 def _find_pair(filepath: str, target_ext: str) -> str | None:
-    base = os.path.splitext(filepath)[0]
-    candidate = base + target_ext
+    base = filepath.rsplit('.', 1)[0]
+    candidate = base + (target_ext if target_ext.startswith('.') else f".{target_ext}")
     return candidate if os.path.isfile(candidate) else None
 
 def _human_size(size: int) -> str:

@@ -7,7 +7,10 @@ from tkinter import filedialog, StringVar, messagebox
 from ui.drag_drop import DragDropFrame
 from ui.settings import SettingsWindow
 from ui.about import AboutWindow
-from core.detector import detect_file, detect_folder, SUPPORTED_INPUT, get_valid_targets, get_command_preview, get_badge_color
+from core.detector import (
+    detect_file, detect_folder, SUPPORTED_INPUT, get_valid_targets,
+    get_command_preview, get_badge_color, get_extension
+)
 from core.converter import Converter, ConversionJob
 from core.validator import verify_chd
 from core.logger import log
@@ -316,7 +319,7 @@ class MainWindow(ctk.CTk):
         with self._jobs_lock:
             existing = {j.filepath for j in self.jobs}
             for p in paths:
-                ext = os.path.splitext(p)[1].lower()
+                ext = f".{get_extension(p)}"
                 if ext not in SUPPORTED_INPUT or p in existing:
                     continue
                 info = detect_file(p)

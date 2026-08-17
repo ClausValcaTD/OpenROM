@@ -1,6 +1,7 @@
 import os
 import customtkinter as ctk
 from tkinter import filedialog
+from core.detector import get_extension
 
 BG_DARK     = "#1a1a2e"
 CARD_BG     = "#16213e"
@@ -97,7 +98,7 @@ class DragDropFrame(ctk.CTkFrame):
             if os.path.isdir(p) and self.on_folder:
                 self.on_folder(p)
             elif os.path.isfile(p):
-                ext = os.path.splitext(p)[1].lower()
+                ext = f".{get_extension(p)}"
                 if self.accepted_exts is None or ext in self.accepted_exts:
                     valid.append(p)
         if valid and self.on_files:
