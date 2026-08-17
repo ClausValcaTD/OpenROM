@@ -12,8 +12,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Debug - Check workspace
+        run: |
+          echo "Workspace: $GITHUB_WORKSPACE"
+          pwd
+          ls -la
+      
       - name: Create output directory
-        run: mkdir -p output/linux  # ✅ هنا!
+        run: mkdir -p $GITHUB_WORKSPACE/output/linux
+      
+      - name: Verify directory exists
+        run: |
+          ls -la $GITHUB_WORKSPACE/output/
+          ls -la $GITHUB_WORKSPACE/output/linux/
       
       - name: Install deps
         run: |
@@ -27,80 +38,44 @@ jobs:
           cd /tmp/chdman
           cmake -B build -G Ninja
           cmake --build build
-          cp build/chdman output/linux/
-          chmod +x output/linux/chdman
+          
+          # Debug
+          echo "Build complete, checking output:"
+          ls -la build/
+          
+          # Copy with absolute path
+          cp build/chdman $GITHUB_WORKSPACE/output/linux/
+          chmod +x $GITHUB_WORKSPACE/output/linux/chdman
+          
+          # Verify
+          ls -la $GITHUB_WORKSPACE/output/linux/
       
       - name: Build maxcso
         run: |
           git clone https://github.com/unknownbrackets/maxcso.git /tmp/maxcso
           cd /tmp/maxcso && make -j$(nproc)
-          cp maxcso output/linux/
+          cp maxcso $GITHUB_WORKSPACE/output/linux/
       
       - name: Build ecm
         run: |
           git clone https://github.com/alucryd/ecm-tools.git /tmp/ecm
           cd /tmp/ecm && meson setup build && meson compile -C build
-          cp build/ecm build/unecm output/linux/
+          cp build/ecm build/unecm $GITHUB_WORKSPACE/output/linux/
       
       - name: Build extract-xiso
         run: |
           git clone https://github.com/XboxDev/extract-xiso.git /tmp/xiso
           cd /tmp/xiso && mkdir build && cd build && cmake .. && make -j$(nproc)
-          cp extract-xiso output/linux/
+          cp extract-xiso $GITHUB_WORKSPACE/output/linux/
+      
+      - name: Final check
+        run: |
+          echo "Final output directory:"
+          ls -la $GITHUB_WORKSPACE/output/linux/
       
       - name: Upload Linux release
         uses: softprops/action-gh-release@v1
         with:
-          files: output/linux/*
+          files: $GITHUB_WORKSPACE/output/linux/*
           tag_name: tools-linux-v${{ github.run_number }}
           name: "Linux Tools v${{ github.run_number }}"
-
-  build-macos:
-    runs-on: macos-latest
-    permissions:
-      contents: write
-    strategy:
-      matrix:
-        arch: [x86_64, arm64]
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Create output directory
-        run: mkdir -p output/macos-${{ matrix.arch }}  # ✅ هنا!
-      
-      - name: Install deps
-        run: |
-          brew install cmake ninja lz4 libuv libdeflate
-      
-      - name: Build chdman standalone
-        run: |
-          git clone https://github.com/CharlesThobe/chdman.git /tmp/chdman
-          cd /tmp/chdman
-          cmake -B build -G Ninja
-          cmake --build build
-          cp build/chdman output/macos-${{ matrix.arch }}/
-      
-      - name: Build maxcso
-        run: |
-          git clone https://github.com/unknownbrackets/maxcso.git /tmp/maxcso
-          cd /tmp/maxcso && make -j$(nproc)
-          cp maxcso output/macos-${{ matrix.arch }}/
-      
-      - name: Build ecm
-        run: |
-          git clone https://github.com/alucryd/ecm-tools.git /tmp/ecm
-          cd /tmp/ecm && meson setup build && meson compile -C build
-          cp build/ecm build/unecm output/macos-${{ matrix.arch }}/
-      
-      - name: Build extract-xiso
-        run: |
-          git clone https://github.com/XboxDev/extract-xiso.git /tmp/xiso
-          cd /tmp/xiso && mkdir build && cd build && cmake .. && make -j$(nproc)
-          cp extract-xiso output/macos-${{ matrix.arch }}/
-      
-      - name: Upload macOS release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: output/macos-${{ matrix.arch }}/*
-          tag_name: tools-macos-${{ matrix.arch }}-v${{ github.run_number }}
-          name: "macOS ${{ matrix.arch }} Tools v${{ github.run_number }}"
