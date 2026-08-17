@@ -15,18 +15,17 @@ jobs:
       - name: Install deps
         run: |
           sudo apt update
-          sudo apt install -y git cmake make g++ wget jq \
+          sudo apt install -y git cmake make g++ ninja-build \
             liblz4-dev libuv1-dev libdeflate-dev
       
-      - name: Download pre-built chdman
+      - name: Build chdman standalone
         run: |
           mkdir -p output/linux
-          # Get latest MAME release
-          TAG=$(curl -s https://api.github.com/repos/mamedev/mame/releases/latest | jq -r .tag_name)
-          echo "Downloading chdman from $TAG"
-          wget "https://github.com/mamedev/mame/releases/download/${TAG}/${TAG}_tools_linux.tar.gz"
-          tar -xzf ${TAG}_tools_linux.tar.gz
-          cp chdman output/linux/
+          git clone https://github.com/CharlesThobe/chdman.git /tmp/chdman
+          cd /tmp/chdman
+          cmake -B build -G Ninja
+          cmake --build build
+          cp build/chdman output/linux/
           chmod +x output/linux/chdman
       
       - name: Build maxcso
@@ -66,22 +65,33 @@ jobs:
       
       - name: Install deps
         run: |
-          brew install cmake make lz4 libuv libdeflate wget jq
+          brew install cmake ninja lz4 libuv libdeflate
       
-      - name: Download pre-built chdman
+      - name: Build chdman standalone
         run: |
           mkdir -p output/macos-${{ matrix.arch }}
-          TAG=$(curl -s https://api.github.com/repos/mamedev/mame/releases/latest | jq -r .tag_name)
-          # macOS binaries from MAME
-          wget "https://github.com/mamedev/mame/releases/download/${TAG}/${TAG}_tools_macOS.tar.gz" || \
-          wget "https://github.com/mamedev/mame/releases/download/${TAG}/${TAG}_tools_macOS-arm64.tar.gz"
-          tar -xzf *.tar.gz
-          cp chdman output/macos-${{ matrix.arch }}/ || echo "chdman not found, will build"
+          git clone https://github.com/CharlesThobe/chdman.git /tmp/chdman
+          cd /tmp/chdman
+          cmake -B build -G Ninja
+          cmake --build build
+          cp build/chdman output/macos-${{ matrix.arch }}/
       
       - name: Build remaining tools
         run: |
-          # maxcso, ecm, extract-xiso (same as Linux)
-          # ...
+          # maxcso
+          git clone https://github.com/unknownbrackets/maxcso.git /tmp/maxcso
+          cd /tmp/maxcso && make -j$(nproc)
+          cp maxcso output/macos-${{ matrix.arch }}/
+          
+          # ecm
+          git clone https://github.com/alucryd/ecm-tools.git /tmp/ecm
+          cd /tmp/ecm && meson setup build && meson compile -C build
+          cp build/ecm build/unecm output/macos-${{ matrix.arch }}/
+          
+          # extract-xiso
+          git clone https://github.com/XboxDev/extract-xiso.git /tmp/xiso
+          cd /tmp/xiso && mkdir build && cd build && cmake .. && make -j$(nproc)
+          cp extract-xiso output/macos-${{ matrix.arch }}/
       
       - name: Upload macOS release
         uses: softprops/action-gh-release@v1
