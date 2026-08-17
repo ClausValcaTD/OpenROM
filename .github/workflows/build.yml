@@ -30,7 +30,8 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y git cmake make g++ ninja-build \
-            liblz4-dev libuv1-dev libdeflate-dev
+            liblz4-dev libuv1-dev libdeflate-dev \
+            meson
       
       - name: Build chdman standalone
         run: |
@@ -39,15 +40,12 @@ jobs:
           cmake -B build -G Ninja
           cmake --build build
           
-          # Debug
           echo "Build complete, checking output:"
           ls -la build/
           
-          # Copy with absolute path
           cp build/chdman $GITHUB_WORKSPACE/output/linux/
           chmod +x $GITHUB_WORKSPACE/output/linux/chdman
           
-          # Verify
           ls -la $GITHUB_WORKSPACE/output/linux/
       
       - name: Build maxcso
@@ -59,7 +57,9 @@ jobs:
       - name: Build ecm
         run: |
           git clone https://github.com/alucryd/ecm-tools.git /tmp/ecm
-          cd /tmp/ecm && meson setup build && meson compile -C build
+          cd /tmp/ecm
+          meson setup build
+          meson compile -C build
           cp build/ecm build/unecm $GITHUB_WORKSPACE/output/linux/
       
       - name: Build extract-xiso
@@ -79,3 +79,55 @@ jobs:
           files: $GITHUB_WORKSPACE/output/linux/*
           tag_name: tools-linux-v${{ github.run_number }}
           name: "Linux Tools v${{ github.run_number }}"
+
+  build-macos:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Create output directory
+        run: mkdir -p $GITHUB_WORKSPACE/output/macos-${{ matrix.arch }}
+      
+      - name: Install deps
+        run: |
+          brew install cmake ninja lz4 libuv libdeflate meson
+      
+      - name: Build chdman standalone
+        run: |
+          git clone https://github.com/CharlesThobe/chdman.git /tmp/chdman
+          cd /tmp/chdman
+          cmake -B build -G Ninja
+          cmake --build build
+          cp build/chdman $GITHUB_WORKSPACE/output/macos-${{ matrix.arch }}/
+      
+      - name: Build maxcso
+        run: |
+          git clone https://github.com/unknownbrackets/maxcso.git /tmp/maxcso
+          cd /tmp/maxcso && make -j$(nproc)
+          cp maxcso $GITHUB_WORKSPACE/output/macos-${{ matrix.arch }}/
+      
+      - name: Build ecm
+        run: |
+          git clone https://github.com/alucryd/ecm-tools.git /tmp/ecm
+          cd /tmp/ecm
+          meson setup build
+          meson compile -C build
+          cp build/ecm build/unecm $GITHUB_WORKSPACE/output/macos-${{ matrix.arch }}/
+      
+      - name: Build extract-xiso
+        run: |
+          git clone https://github.com/XboxDev/extract-xiso.git /tmp/xiso
+          cd /tmp/xiso && mkdir build && cd build && cmake .. && make -j$(nproc)
+          cp extract-xiso $GITHUB_WORKSPACE/output/macos-${{ matrix.arch }}/
+      
+      - name: Upload macOS release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: $GITHUB_WORKSPACE/output/macos-${{ matrix.arch }}/*
+          tag_name: tools-macos-${{ matrix.arch }}-v${{ github.run_number }}
+          name: "macOS ${{ matrix.arch }} Tools v${{ github.run_number }}"
