@@ -3,12 +3,12 @@ name: Build Cross-Platform Tools
 
 on:
   workflow_dispatch:  # Manual trigger only
-  schedule:
-    - cron: '0 0 * * 0'  # Weekly auto-build
 
 jobs:
   build-linux:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # ✅ Fix for 403 error
     steps:
       - uses: actions/checkout@v4
       
@@ -18,25 +18,32 @@ jobs:
           sudo apt install -y git cmake make g++ \
             liblz4-dev libuv1-dev libdeflate-dev
       
-      - name: Build all tools
+      - name: Build chdman
         run: |
-          mkdir -p output/linux
-          # chdman
           git clone --depth 1 https://github.com/mamedev/mame.git /tmp/mame
-          cd /tmp/mame && make -j$(nproc) SUBTARGET=tools TOOLS=1
-          cp /tmp/mame/chdman $GITHUB_WORKSPACE/output/linux/
-          # maxcso
+          cd /tmp/mame
+          # ✅ Fix: Precompile first
+          make -j$(nproc) SUBTARGET=tools TOOLS=1 PRECOMPILE=1 || true
+          make -j$(nproc) SUBTARGET=tools TOOLS=1
+          cp chdman $GITHUB_WORKSPACE/output/linux/
+      
+      - name: Build maxcso
+        run: |
           git clone https://github.com/unknownbrackets/maxcso.git /tmp/maxcso
           cd /tmp/maxcso && make -j$(nproc)
-          cp /tmp/maxcso/maxcso $GITHUB_WORKSPACE/output/linux/
-          # ecm
+          cp maxcso $GITHUB_WORKSPACE/output/linux/
+      
+      - name: Build ecm
+        run: |
           git clone https://github.com/alucryd/ecm-tools.git /tmp/ecm
           cd /tmp/ecm && meson setup build && meson compile -C build
-          cp /tmp/ecm/build/ecm /tmp/ecm/build/unecm $GITHUB_WORKSPACE/output/linux/
-          # extract-xiso
+          cp build/ecm build/unecm $GITHUB_WORKSPACE/output/linux/
+      
+      - name: Build extract-xiso
+        run: |
           git clone https://github.com/XboxDev/extract-xiso.git /tmp/xiso
           cd /tmp/xiso && mkdir build && cd build && cmake .. && make -j$(nproc)
-          cp /tmp/xiso/build/extract-xiso $GITHUB_WORKSPACE/output/linux/
+          cp extract-xiso $GITHUB_WORKSPACE/output/linux/
       
       - name: Upload to release
         uses: softprops/action-gh-release@v1
@@ -47,6 +54,8 @@ jobs:
 
   build-macos:
     runs-on: macos-latest
+    permissions:
+      contents: write  # ✅ Fix for 403 error
     strategy:
       matrix:
         arch: [x86_64, arm64]
@@ -60,11 +69,11 @@ jobs:
       - name: Build all tools
         run: |
           mkdir -p output/macos-${{ matrix.arch }}
-          # Same build steps as Linux
-          # ... (chdman, maxcso, ecm, extract-xiso)
+          # Build steps here...
       
       - name: Upload to release
         uses: softprops/action-gh-release@v1
         with:
           files: output/macos-${{ matrix.arch }}/*
           tag_name: tools-macos-${{ matrix.arch }}-${{ github.run_number }}
+          body: "macOS ${{ matrix.arch }} tools build"
