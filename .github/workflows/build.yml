@@ -12,19 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Debug - Check workspace
-        run: |
-          echo "Workspace: $GITHUB_WORKSPACE"
-          pwd
-          ls -la
-      
       - name: Create output directory
         run: mkdir -p $GITHUB_WORKSPACE/output/linux
-      
-      - name: Verify directory exists
-        run: |
-          ls -la $GITHUB_WORKSPACE/output/
-          ls -la $GITHUB_WORKSPACE/output/linux/
       
       - name: Install deps
         run: |
@@ -39,14 +28,8 @@ jobs:
           cd /tmp/chdman
           cmake -B build -G Ninja
           cmake --build build
-          
-          echo "Build complete, checking output:"
-          ls -la build/
-          
           cp build/chdman $GITHUB_WORKSPACE/output/linux/
           chmod +x $GITHUB_WORKSPACE/output/linux/chdman
-          
-          ls -la $GITHUB_WORKSPACE/output/linux/
       
       - name: Build maxcso
         run: |
@@ -54,13 +37,14 @@ jobs:
           cd /tmp/maxcso && make -j$(nproc)
           cp maxcso $GITHUB_WORKSPACE/output/linux/
       
-      - name: Build ecm
+      - name: Build ecm (kidoz fork)
         run: |
-          git clone https://github.com/alucryd/ecm-tools.git /tmp/ecm
+          git clone https://github.com/kidoz/ecm.git /tmp/ecm
           cd /tmp/ecm
           meson setup build
           meson compile -C build
-          cp build/ecm build/unecm $GITHUB_WORKSPACE/output/linux/
+          cp build/ecm $GITHUB_WORKSPACE/output/linux/
+          cp build/unecm $GITHUB_WORKSPACE/output/linux/ 2>/dev/null || echo "unecm not found"
       
       - name: Build extract-xiso
         run: |
@@ -111,13 +95,14 @@ jobs:
           cd /tmp/maxcso && make -j$(nproc)
           cp maxcso $GITHUB_WORKSPACE/output/macos-${{ matrix.arch }}/
       
-      - name: Build ecm
+      - name: Build ecm (kidoz fork)
         run: |
-          git clone https://github.com/alucryd/ecm-tools.git /tmp/ecm
+          git clone https://github.com/kidoz/ecm.git /tmp/ecm
           cd /tmp/ecm
           meson setup build
           meson compile -C build
-          cp build/ecm build/unecm $GITHUB_WORKSPACE/output/macos-${{ matrix.arch }}/
+          cp build/ecm $GITHUB_WORKSPACE/output/macos-${{ matrix.arch }}/
+          cp build/unecm $GITHUB_WORKSPACE/output/macos-${{ matrix.arch }}/ 2>/dev/null || echo "unecm not found"
       
       - name: Build extract-xiso
         run: |
