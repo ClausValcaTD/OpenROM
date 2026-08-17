@@ -12,6 +12,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Create output directory
+        run: mkdir -p output/linux  # ✅ هنا!
+      
       - name: Install deps
         run: |
           sudo apt update
@@ -20,7 +23,6 @@ jobs:
       
       - name: Build chdman standalone
         run: |
-          mkdir -p output/linux
           git clone https://github.com/CharlesThobe/chdman.git /tmp/chdman
           cd /tmp/chdman
           cmake -B build -G Ninja
@@ -63,32 +65,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Create output directory
+        run: mkdir -p output/macos-${{ matrix.arch }}  # ✅ هنا!
+      
       - name: Install deps
         run: |
           brew install cmake ninja lz4 libuv libdeflate
       
       - name: Build chdman standalone
         run: |
-          mkdir -p output/macos-${{ matrix.arch }}
           git clone https://github.com/CharlesThobe/chdman.git /tmp/chdman
           cd /tmp/chdman
           cmake -B build -G Ninja
           cmake --build build
           cp build/chdman output/macos-${{ matrix.arch }}/
       
-      - name: Build remaining tools
+      - name: Build maxcso
         run: |
-          # maxcso
           git clone https://github.com/unknownbrackets/maxcso.git /tmp/maxcso
           cd /tmp/maxcso && make -j$(nproc)
           cp maxcso output/macos-${{ matrix.arch }}/
-          
-          # ecm
+      
+      - name: Build ecm
+        run: |
           git clone https://github.com/alucryd/ecm-tools.git /tmp/ecm
           cd /tmp/ecm && meson setup build && meson compile -C build
           cp build/ecm build/unecm output/macos-${{ matrix.arch }}/
-          
-          # extract-xiso
+      
+      - name: Build extract-xiso
+        run: |
           git clone https://github.com/XboxDev/extract-xiso.git /tmp/xiso
           cd /tmp/xiso && mkdir build && cd build && cmake .. && make -j$(nproc)
           cp extract-xiso output/macos-${{ matrix.arch }}/
