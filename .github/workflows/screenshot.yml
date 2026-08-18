@@ -1,0 +1,55 @@
+name: Take Screenshots
+on: workflow_dispatch
+
+jobs:
+  screenshot-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pillow
+
+      - name: Take screenshots
+        shell: python
+        run: |
+          import subprocess, time, os, sys
+          from PIL import ImageGrab
+
+          os.makedirs("screenshots", exist_ok=True)
+
+          # شغّل البرنامج في background
+          proc = subprocess.Popen(
+              [sys.executable, "main.py"],
+              creationflags=subprocess.CREATE_NEW_CONSOLE
+          )
+
+          # استنى يفتح
+          time.sleep(6)
+
+          # خد screenshot للشاشة كلها
+          img = ImageGrab.grab()
+          img.save("screenshots/openrom_main.png")
+          print("✅ Screenshot saved: openrom_main.png")
+
+          # استنى شوية وخد تاني
+          time.sleep(2)
+          img2 = ImageGrab.grab()
+          img2.save("screenshots/openrom_main2.png")
+          print("✅ Screenshot saved: openrom_main2.png")
+
+          proc.terminate()
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: openrom-screenshots
+          path: screenshots/
