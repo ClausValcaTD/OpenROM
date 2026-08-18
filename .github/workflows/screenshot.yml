@@ -26,25 +26,21 @@ jobs:
 
           os.makedirs("screenshots", exist_ok=True)
 
-          # شغّل البرنامج في background
           proc = subprocess.Popen(
               [sys.executable, "main.py"],
               creationflags=subprocess.CREATE_NEW_CONSOLE
           )
 
-          # استنى يفتح
           time.sleep(6)
 
-          # خد screenshot للشاشة كلها
           img = ImageGrab.grab()
           img.save("screenshots/openrom_main.png")
-          print("✅ Screenshot saved: openrom_main.png")
+          print("OK: Screenshot saved: openrom_main.png")
 
-          # استنى شوية وخد تاني
           time.sleep(2)
           img2 = ImageGrab.grab()
           img2.save("screenshots/openrom_main2.png")
-          print("✅ Screenshot saved: openrom_main2.png")
+          print("OK: Screenshot saved: openrom_main2.png")
 
           proc.terminate()
 
