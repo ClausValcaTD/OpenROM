@@ -18,27 +18,41 @@ jobs:
 
       - name: Install dependencies
         run: |
-          brew install rom-tools ecm libuv lz4
+          brew install rom-tools libuv lz4 pkg-config
 
       - name: Build maxcso from source
         run: |
           git clone --depth=1 https://github.com/unknownbrackets/maxcso /tmp/maxcso_src
           cd /tmp/maxcso_src && make -j$(sysctl -n hw.logicalcpu)
 
+      - name: Build ecm / unecm from source
+        run: |
+          git clone --depth=1 https://github.com/kidoz/ecm /tmp/ecm_src
+          echo '#define ECM_VERSION "2.0.0"' > /tmp/ecm_src/include/version.h
+          gcc -O2 -x c -Dnullptr=NULL -Wno-incompatible-pointer-types \
+              -o /tmp/ecm_src/ecm \
+              /tmp/ecm_src/src/ecm.c /tmp/ecm_src/src/eccedc.c \
+              -I /tmp/ecm_src/include -lm
+          gcc -O2 -x c -Dnullptr=NULL -Wno-incompatible-pointer-types \
+              -o /tmp/ecm_src/unecm \
+              /tmp/ecm_src/src/unecm.c /tmp/ecm_src/src/eccedc.c \
+              -I /tmp/ecm_src/include -lm
+
       - name: Download extract-xiso
         run: |
           curl -L https://github.com/XboxDev/extract-xiso/releases/latest/download/extract-xiso_macOS.zip -o xiso.zip
           unzip xiso.zip
           chmod +x extract-xiso
+          xattr -cr extract-xiso
 
       - name: Copy binaries
         run: |
           mkdir -p assets/macos/${{ matrix.arch }}
-          cp $(which chdman)                     assets/macos/${{ matrix.arch }}/chdman
-          cp /tmp/maxcso_src/maxcso              assets/macos/${{ matrix.arch }}/maxcso
-          cp $(which ecm-compress)               assets/macos/${{ matrix.arch }}/ecm
-          cp $(which ecm-uncompress)             assets/macos/${{ matrix.arch }}/unecm
-          cp extract-xiso                        assets/macos/${{ matrix.arch }}/extract-xiso
+          cp $(which chdman)          assets/macos/${{ matrix.arch }}/chdman
+          cp /tmp/maxcso_src/maxcso   assets/macos/${{ matrix.arch }}/maxcso
+          cp /tmp/ecm_src/ecm         assets/macos/${{ matrix.arch }}/ecm
+          cp /tmp/ecm_src/unecm       assets/macos/${{ matrix.arch }}/unecm
+          cp extract-xiso             assets/macos/${{ matrix.arch }}/extract-xiso
           chmod +x assets/macos/${{ matrix.arch }}/*
 
       - name: Verify binaries
