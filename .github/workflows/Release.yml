@@ -1,0 +1,199 @@
+name: Build Release
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+
+jobs:
+
+  # Windows - Portable EXE
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install "pyinstaller>=6.0.0"
+
+      - name: Build EXE
+        run: |
+          pyinstaller `
+            --noconfirm `
+            --onefile `
+            --windowed `
+            --name "OpenROM" `
+            --add-data "assets;assets" `
+            --icon "assets/icon.ico" `
+            main.py
+
+      - name: Zip portable
+        run: |
+          cd dist
+          Compress-Archive -Path OpenROM.exe -DestinationPath OpenROM_Windows_Portable.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenROM_Windows_Portable
+          path: dist/OpenROM_Windows_Portable.zip
+
+  # Linux - AppImage
+  build-linux:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q python3-tk libfuse2 wget fuse
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install "pyinstaller>=6.0.0"
+
+      - name: Build binary
+        run: |
+          pyinstaller \
+            --noconfirm \
+            --onedir \
+            --windowed \
+            --name "OpenROM" \
+            --add-data "assets:assets" \
+            main.py
+
+      - name: Download appimagetool
+        run: |
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          chmod +x appimagetool
+
+      - name: Create AppDir structure
+        run: |
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+
+          cp -r dist/OpenROM/* AppDir/usr/bin/
+
+          cat > AppDir/OpenROM.desktop << EOF
+          [Desktop Entry]
+          Name=OpenROM
+          Exec=OpenROM
+          Icon=openrom
+          Type=Application
+          Categories=Utility;
+          Comment=Universal ROM Compression Suite
+          EOF
+
+          cat > AppDir/AppRun << EOF
+          #!/bin/bash
+          HERE="\$(dirname "\$(readlink -f "\${0}")")"
+          exec "\$HERE/usr/bin/OpenROM" "\$@"
+          EOF
+          chmod +x AppDir/AppRun
+
+          if [ -f "assets/icon.png" ]; then
+            cp assets/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/openrom.png
+            cp assets/icon.png AppDir/openrom.png
+          fi
+
+      - name: Build AppImage
+        run: |
+          ARCH=x86_64 ./appimagetool AppDir OpenROM_Linux_x86_64.AppImage
+          chmod +x OpenROM_Linux_x86_64.AppImage
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenROM_Linux_AppImage
+          path: OpenROM_Linux_x86_64.AppImage
+
+  # macOS - DMG (arm64 + x86_64)
+  build-macos:
+    strategy:
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+          - os: macos-15-intel
+            arch: x86_64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install "pyinstaller>=6.0.0"
+
+      - name: Build app bundle
+        run: |
+          pyinstaller \
+            --noconfirm \
+            --onefile \
+            --windowed \
+            --name "OpenROM" \
+            --add-data "assets:assets" \
+            --target-arch ${{ matrix.arch }} \
+            main.py
+
+      - name: Create DMG
+        run: |
+          mkdir -p dmg_contents
+          cp -r dist/OpenROM dmg_contents/
+          hdiutil create \
+            -volname "OpenROM" \
+            -srcfolder dmg_contents \
+            -ov \
+            -format UDZO \
+            OpenROM_macOS_${{ matrix.arch }}.dmg
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenROM_macOS_${{ matrix.arch }}
+          path: OpenROM_macOS_${{ matrix.arch }}.dmg
+
+  # Upload to GitHub Release
+  upload-release:
+    needs: [build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/OpenROM_Windows_Portable/OpenROM_Windows_Portable.zip
+            artifacts/OpenROM_Linux_AppImage/OpenROM_Linux_x86_64.AppImage
+            artifacts/OpenROM_macOS_arm64/OpenROM_macOS_arm64.dmg
+            artifacts/OpenROM_macOS_x86_64/OpenROM_macOS_x86_64.dmg
