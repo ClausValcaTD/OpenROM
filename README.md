@@ -2,7 +2,8 @@
 
 **Universal ROM Compression Suite** — by M5 Dev
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE).
+[![SourceForge Downloads](https://img.shields.io/sourceforge/dt/openrom.svg?color=2ea043&logo=sourceforge)](https://sourceforge.net/projects/openrom/files/latest/download)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-cyan)]()
 [![Release](https://img.shields.io/github/v/release/M5Devs/OpenROM)](https://github.com/M5Devs/OpenROM/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/M5Devs/OpenROM/total)](https://github.com/M5Devs/OpenROM/releases/latest)
