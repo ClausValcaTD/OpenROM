@@ -7,6 +7,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-cyan)]()
 [![Release](https://img.shields.io/github/v/release/M5Devs/OpenROM)](https://github.com/M5Devs/OpenROM/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/M5Devs/OpenROM/total)](https://github.com/M5Devs/OpenROM/releases/latest)
+[![SourceForge Monthly Downloads](https://img.shields.io/sourceforge/dm/openrom.svg?color=1f6feb&logo=sourceforge)](https://sourceforge.net/projects/openrom/files/latest/download)
 
 OpenROM is a Universal ROM Compression Suite built to break the monopoly of proprietary ROM tools. It features a modern two-column UI design, real-time command line terminal logging, batch processing, and direct single-click conversions.
 
@@ -16,12 +17,16 @@ OpenROM is a Universal ROM Compression Suite built to break the monopoly of prop
 
 ## ⬇️ Download
 
-| Platform | Download |
-|----------|----------|
-| 🪟 Windows | [OpenROM_Windows_Portable.zip](https://github.com/M5Devs/OpenROM/releases/latest) |
-| 🐧 Linux | [OpenROM_Linux_x86_64.AppImage](https://github.com/M5Devs/OpenROM/releases/latest) |
-| 🍎 macOS Apple Silicon | [OpenROM_macOS_arm64.dmg](https://github.com/M5Devs/OpenROM/releases/latest) |
-| 🍎 macOS Intel | [OpenROM_macOS_x86_64.dmg](https://github.com/M5Devs/OpenROM/releases/latest) |
+| Platform | Official Release (GitHub) | Fast Mirror (SourceForge) |
+|----------|---------------------------|---------------------------|
+| 🪟 Windows | [OpenROM_Windows_Portable.zip](https://github.com/M5Devs/OpenROM/releases/latest) | [Download Mirror](https://sourceforge.net/projects/openrom/files/latest/download) |
+| 🐧 Linux | [OpenROM_Linux_x86_64.AppImage](https://github.com/M5Devs/OpenROM/releases/latest) | [Download Mirror](https://sourceforge.net/projects/openrom/files/latest/download) |
+| 🍎 macOS Apple Silicon | [OpenROM_macOS_arm64.dmg](https://github.com/M5Devs/OpenROM/releases/latest) | [Download Mirror](https://sourceforge.net/projects/openrom/files/latest/download) |
+| 🍎 macOS Intel | [OpenROM_macOS_x86_64.dmg](https://github.com/M5Devs/OpenROM/releases/latest) | [Download Mirror](https://sourceforge.net/projects/openrom/files/latest/download) |
+
+---
+
+📖 **Documentation & Guides:** Check out our [Official Wiki](https://github.com/M5Devs/OpenROM/wiki) for setup guides, Steam Deck setup, and FAQs.
 
 ---
 
