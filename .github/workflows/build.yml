@@ -1,118 +1,30 @@
-# .github/workflows/build.yml
-name: Build Cross-Platform Tools
-
-on:
-  workflow_dispatch:
+# .github/workflows/build-macos.yml
+name: Build macOS Assets
+on: workflow_dispatch  # تشغيله يدوي لما تحتاجه
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Create output directory
-        run: mkdir -p $GITHUB_WORKSPACE/output/linux
-      
-      - name: Install deps
-        run: |
-          sudo apt update
-          sudo apt install -y git cmake make g++ ninja-build \
-            liblz4-dev libuv1-dev libdeflate-dev \
-            meson
-      
-      - name: Build chdman standalone
-        run: |
-          git clone https://github.com/CharlesThobe/chdman.git /tmp/chdman
-          cd /tmp/chdman
-          cmake -B build -G Ninja
-          cmake --build build
-          cp build/chdman $GITHUB_WORKSPACE/output/linux/
-          chmod +x $GITHUB_WORKSPACE/output/linux/chdman
-      
-      - name: Build maxcso
-        run: |
-          git clone https://github.com/unknownbrackets/maxcso.git /tmp/maxcso
-          cd /tmp/maxcso && make -j$(nproc)
-          cp maxcso $GITHUB_WORKSPACE/output/linux/
-      
-      - name: Build ecm (kidoz fork)
-        run: |
-          git clone https://github.com/kidoz/ecm.git /tmp/ecm
-          cd /tmp/ecm
-          meson setup build
-          meson compile -C build
-          cp build/ecm $GITHUB_WORKSPACE/output/linux/
-          cp build/unecm $GITHUB_WORKSPACE/output/linux/ 2>/dev/null || echo "unecm not found"
-      
-      - name: Build extract-xiso
-        run: |
-          git clone https://github.com/XboxDev/extract-xiso.git /tmp/xiso
-          cd /tmp/xiso && mkdir build && cd build && cmake .. && make -j$(nproc)
-          cp extract-xiso $GITHUB_WORKSPACE/output/linux/
-      
-      - name: Final check
-        run: |
-          echo "Final output directory:"
-          ls -la $GITHUB_WORKSPACE/output/linux/
-      
-      - name: Upload Linux release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: $GITHUB_WORKSPACE/output/linux/*
-          tag_name: tools-linux-v${{ github.run_number }}
-          name: "Linux Tools v${{ github.run_number }}"
-
-  build-macos:
+  build:
     runs-on: macos-latest
-    permissions:
-      contents: write
-    strategy:
-      matrix:
-        arch: [x86_64, arm64]
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Create output directory
-        run: mkdir -p $GITHUB_WORKSPACE/output/macos-${{ matrix.arch }}
-      
-      - name: Install deps
+      - name: Install tools
         run: |
-          brew install cmake ninja lz4 libuv libdeflate meson
-      
-      - name: Build chdman standalone
+          brew install rom-tools maxcso ecm
+      - name: Copy binaries
         run: |
-          git clone https://github.com/CharlesThobe/chdman.git /tmp/chdman
-          cd /tmp/chdman
-          cmake -B build -G Ninja
-          cmake --build build
-          cp build/chdman $GITHUB_WORKSPACE/output/macos-${{ matrix.arch }}/
-      
-      - name: Build maxcso
+          mkdir -p assets/macos
+          cp $(which chdman) assets/macos/chdman
+          cp $(which maxcso) assets/macos/maxcso
+          cp $(which ecm-compress) assets/macos/ecm
+          cp $(which ecm-uncompress) assets/macos/unecm
+      - name: Download extract-xiso
         run: |
-          git clone https://github.com/unknownbrackets/maxcso.git /tmp/maxcso
-          cd /tmp/maxcso && make -j$(nproc)
-          cp maxcso $GITHUB_WORKSPACE/output/macos-${{ matrix.arch }}/
-      
-      - name: Build ecm (kidoz fork)
-        run: |
-          git clone https://github.com/kidoz/ecm.git /tmp/ecm
-          cd /tmp/ecm
-          meson setup build
-          meson compile -C build
-          cp build/ecm $GITHUB_WORKSPACE/output/macos-${{ matrix.arch }}/
-          cp build/unecm $GITHUB_WORKSPACE/output/macos-${{ matrix.arch }}/ 2>/dev/null || echo "unecm not found"
-      
-      - name: Build extract-xiso
-        run: |
-          git clone https://github.com/XboxDev/extract-xiso.git /tmp/xiso
-          cd /tmp/xiso && mkdir build && cd build && cmake .. && make -j$(nproc)
-          cp extract-xiso $GITHUB_WORKSPACE/output/macos-${{ matrix.arch }}/
-      
-      - name: Upload macOS release
-        uses: softprops/action-gh-release@v1
+          curl -L https://github.com/XboxDev/extract-xiso/releases/latest/download/extract-xiso_macOS.zip -o xiso.zip
+          unzip xiso.zip -d assets/macos/
+          mv assets/macos/extract-xiso* assets/macos/extract-xiso
+          chmod +x assets/macos/*
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          files: $GITHUB_WORKSPACE/output/macos-${{ matrix.arch }}/*
-          tag_name: tools-macos-${{ matrix.arch }}-v${{ github.run_number }}
-          name: "macOS ${{ matrix.arch }} Tools v${{ github.run_number }}"
+          name: macos-binaries
+          path: assets/macos/
