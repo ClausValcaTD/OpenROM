@@ -14,7 +14,6 @@ echo [2/3] Building executable...
 pyinstaller ^
   --noconfirm ^
   --onefile ^
-  --windowed ^
   --name "OpenROM" ^
   --add-data "assets;assets" ^
   --icon "assets/icon.ico" ^
