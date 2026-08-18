@@ -1,16 +1,20 @@
 name: Build Release
-
 on:
-  release:
-    types: [created]
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g., 2.0.0)'
+        required: true
+        default: '2.0.0'
+
+permissions:
+  contents: write
 
 jobs:
 
   # Windows - Portable EXE
   build-windows:
     runs-on: windows-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -32,24 +36,23 @@ jobs:
             --windowed `
             --name "OpenROM" `
             --add-data "assets;assets" `
-            --icon "assets/icon.ico" `
+            --icon "assets/icons/icon.ico" `
             main.py
 
       - name: Zip portable
         run: |
           cd dist
-          Compress-Archive -Path OpenROM.exe -DestinationPath OpenROM_Windows_Portable.zip
+          Compress-Archive -Path OpenROM.exe -DestinationPath OpenROM-v${{ github.event.inputs.version }}_Windows_Portable.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: OpenROM_Windows_Portable
-          path: dist/OpenROM_Windows_Portable.zip
+          name: OpenROM_Windows
+          path: dist/OpenROM-v${{ github.event.inputs.version }}_Windows_Portable.zip
 
   # Linux - AppImage
   build-linux:
     runs-on: ubuntu-22.04
-
     steps:
       - uses: actions/checkout@v4
 
@@ -86,10 +89,10 @@ jobs:
       - name: Create AppDir structure
         run: |
           mkdir -p AppDir/usr/bin
-          mkdir -p AppDir/usr/share/applications
           mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
-
           cp -r dist/OpenROM/* AppDir/usr/bin/
+          cp assets/icons/icon.png AppDir/openrom.png
+          cp assets/icons/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/openrom.png
 
           cat > AppDir/OpenROM.desktop << EOF
           [Desktop Entry]
@@ -108,23 +111,18 @@ jobs:
           EOF
           chmod +x AppDir/AppRun
 
-          if [ -f "assets/icon.png" ]; then
-            cp assets/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/openrom.png
-            cp assets/icon.png AppDir/openrom.png
-          fi
-
       - name: Build AppImage
         run: |
-          ARCH=x86_64 ./appimagetool AppDir OpenROM_Linux_x86_64.AppImage
-          chmod +x OpenROM_Linux_x86_64.AppImage
+          ARCH=x86_64 ./appimagetool AppDir OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.AppImage
+          chmod +x OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.AppImage
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: OpenROM_Linux_AppImage
-          path: OpenROM_Linux_x86_64.AppImage
+          name: OpenROM_Linux
+          path: OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.AppImage
 
-  # macOS - DMG (arm64 + x86_64)
+  # macOS - DMG
   build-macos:
     strategy:
       matrix:
@@ -133,9 +131,7 @@ jobs:
             arch: arm64
           - os: macos-15-intel
             arch: x86_64
-
     runs-on: ${{ matrix.os }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -157,6 +153,7 @@ jobs:
             --windowed \
             --name "OpenROM" \
             --add-data "assets:assets" \
+            --icon "assets/icons/icon.icns" \
             --target-arch ${{ matrix.arch }} \
             main.py
 
@@ -169,31 +166,54 @@ jobs:
             -srcfolder dmg_contents \
             -ov \
             -format UDZO \
-            OpenROM_macOS_${{ matrix.arch }}.dmg
+            OpenROM-v${{ github.event.inputs.version }}_macOS_${{ matrix.arch }}.dmg
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: OpenROM_macOS_${{ matrix.arch }}
-          path: OpenROM_macOS_${{ matrix.arch }}.dmg
+          path: OpenROM-v${{ github.event.inputs.version }}_macOS_${{ matrix.arch }}.dmg
 
-  # Upload to GitHub Release
-  upload-release:
+  # Create GitHub Release
+  release:
     needs: [build-windows, build-linux, build-macos]
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
-
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts/
 
-      - name: Upload to release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ github.event.inputs.version }}
+          name: OpenROM v${{ github.event.inputs.version }}
+          body: |
+            ## OpenROM v${{ github.event.inputs.version }}
+
+            Universal ROM Compression Suite for retro gaming.
+
+            ### Supported Formats
+            - PS1: BIN/CUE → CHD, ECM
+            - PS2: ISO → CHD, CSO
+            - GameCube/Wii: ISO → RVZ
+            - Xbox: ISO → XISO
+
+            ### Downloads
+            | Platform | File |
+            |----------|------|
+            | Windows | `OpenROM-v${{ github.event.inputs.version }}_Windows_Portable.zip` |
+            | Linux | `OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.AppImage` |
+            | macOS Apple Silicon | `OpenROM-v${{ github.event.inputs.version }}_macOS_arm64.dmg` |
+            | macOS Intel | `OpenROM-v${{ github.event.inputs.version }}_macOS_x86_64.dmg` |
+
           files: |
-            artifacts/OpenROM_Windows_Portable/OpenROM_Windows_Portable.zip
-            artifacts/OpenROM_Linux_AppImage/OpenROM_Linux_x86_64.AppImage
-            artifacts/OpenROM_macOS_arm64/OpenROM_macOS_arm64.dmg
-            artifacts/OpenROM_macOS_x86_64/OpenROM_macOS_x86_64.dmg
+            artifacts/OpenROM_Windows/OpenROM-v${{ github.event.inputs.version }}_Windows_Portable.zip
+            artifacts/OpenROM_Linux/OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.AppImage
+            artifacts/OpenROM_macOS_arm64/OpenROM-v${{ github.event.inputs.version }}_macOS_arm64.dmg
+            artifacts/OpenROM_macOS_x86_64/OpenROM-v${{ github.event.inputs.version }}_macOS_x86_64.dmg
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
