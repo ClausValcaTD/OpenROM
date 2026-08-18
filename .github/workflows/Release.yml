@@ -33,7 +33,6 @@ jobs:
           pyinstaller `
             --noconfirm `
             --onefile `
-            --windowed `
             --name "OpenROM" `
             --add-data "assets;assets" `
             --icon "assets/icons/icon.ico" `
