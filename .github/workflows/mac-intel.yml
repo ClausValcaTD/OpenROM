@@ -1,0 +1,66 @@
+name: Build macOS Intel Assets
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: macos-15-intel
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install rom-tools libuv lz4 pkg-config
+
+      - name: Build maxcso from source
+        run: |
+          git clone --depth=1 https://github.com/unknownbrackets/maxcso /tmp/maxcso_src
+          cd /tmp/maxcso_src && make -j$(sysctl -n hw.logicalcpu)
+
+      - name: Build ecm / unecm from source
+        run: |
+          git clone --depth=1 https://github.com/kidoz/ecm /tmp/ecm_src
+          echo '#define ECM_VERSION "2.0.0"' > /tmp/ecm_src/include/version.h
+          gcc -O2 -x c -Dnullptr=NULL -Wno-incompatible-pointer-types \
+              -o /tmp/ecm_src/ecm \
+              /tmp/ecm_src/src/ecm.c /tmp/ecm_src/src/eccedc.c \
+              -I /tmp/ecm_src/include -lm
+          gcc -O2 -x c -Dnullptr=NULL -Wno-incompatible-pointer-types \
+              -o /tmp/ecm_src/unecm \
+              /tmp/ecm_src/src/unecm.c /tmp/ecm_src/src/eccedc.c \
+              -I /tmp/ecm_src/include -lm
+
+      - name: Download extract-xiso
+        run: |
+          curl -L https://github.com/XboxDev/extract-xiso/releases/latest/download/extract-xiso_macOS.zip -o xiso.zip
+          unzip xiso.zip
+          chmod +x extract-xiso
+          xattr -cr extract-xiso
+
+      - name: Copy binaries
+        run: |
+          mkdir -p assets/macos/x86_64
+          cp $(which chdman)          assets/macos/x86_64/chdman
+          cp /tmp/maxcso_src/maxcso   assets/macos/x86_64/maxcso
+          cp /tmp/ecm_src/ecm         assets/macos/x86_64/ecm
+          cp /tmp/ecm_src/unecm       assets/macos/x86_64/unecm
+          cp extract-xiso             assets/macos/x86_64/extract-xiso
+          chmod +x assets/macos/x86_64/*
+
+      - name: Verify binaries
+        run: |
+          echo "=== x86_64 ==="
+          for f in chdman maxcso ecm unecm extract-xiso; do
+            path="assets/macos/x86_64/$f"
+            if [ -f "$path" ]; then
+              echo "✅ $f — $(du -sh $path | cut -f1)"
+            else
+              echo "❌ $f MISSING"
+            fi
+          done
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-x86_64
+          path: assets/macos/x86_64/
