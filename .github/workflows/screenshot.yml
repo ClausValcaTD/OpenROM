@@ -23,6 +23,7 @@ jobs:
         run: |
           import subprocess, time, os, sys
           from PIL import ImageGrab
+          import ctypes
 
           os.makedirs("screenshots", exist_ok=True)
 
@@ -31,16 +32,22 @@ jobs:
               creationflags=subprocess.CREATE_NEW_CONSOLE
           )
 
-          time.sleep(6)
+          # استنى يفتح
+          time.sleep(8)
 
+          # جيب الـ window للأمام واعمله maximize
+          import ctypes
+          user32 = ctypes.windll.user32
+          hwnd = user32.FindWindowW(None, "OpenROM v2.0 - Universal ROM Compression Suite")
+          if hwnd:
+              user32.ShowWindow(hwnd, 3)   # SW_MAXIMIZE
+              user32.SetForegroundWindow(hwnd)
+              time.sleep(1)
+
+          # خد screenshot
           img = ImageGrab.grab()
           img.save("screenshots/openrom_main.png")
-          print("OK: Screenshot saved: openrom_main.png")
-
-          time.sleep(2)
-          img2 = ImageGrab.grab()
-          img2.save("screenshots/openrom_main2.png")
-          print("OK: Screenshot saved: openrom_main2.png")
+          print("OK: Screenshot saved")
 
           proc.terminate()
 
