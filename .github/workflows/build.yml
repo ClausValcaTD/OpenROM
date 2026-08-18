@@ -1,30 +1,39 @@
-# .github/workflows/build-macos.yml
 name: Build macOS Assets
-on: workflow_dispatch  # تشغيله يدوي لما تحتاجه
+on: workflow_dispatch
 
 jobs:
   build:
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            arch: arm64
+          - os: macos-13
+            arch: x86_64
+
+    runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Install tools
         run: |
           brew install rom-tools maxcso ecm
+          curl -L https://github.com/XboxDev/extract-xiso/releases/latest/download/extract-xiso_macOS.zip -o xiso.zip
+          unzip xiso.zip
+
       - name: Copy binaries
         run: |
-          mkdir -p assets/macos
-          cp $(which chdman) assets/macos/chdman
-          cp $(which maxcso) assets/macos/maxcso
-          cp $(which ecm-compress) assets/macos/ecm
-          cp $(which ecm-uncompress) assets/macos/unecm
-      - name: Download extract-xiso
-        run: |
-          curl -L https://github.com/XboxDev/extract-xiso/releases/latest/download/extract-xiso_macOS.zip -o xiso.zip
-          unzip xiso.zip -d assets/macos/
-          mv assets/macos/extract-xiso* assets/macos/extract-xiso
-          chmod +x assets/macos/*
-      - name: Upload artifacts
+          mkdir -p assets/macos/${{ matrix.arch }}
+          cp $(which chdman)        assets/macos/${{ matrix.arch }}/chdman
+          cp $(which maxcso)        assets/macos/${{ matrix.arch }}/maxcso
+          cp $(which ecm-compress)  assets/macos/${{ matrix.arch }}/ecm
+          cp $(which ecm-uncompress) assets/macos/${{ matrix.arch }}/unecm
+          cp extract-xiso           assets/macos/${{ matrix.arch }}/extract-xiso
+          chmod +x assets/macos/${{ matrix.arch }}/*
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-binaries
-          path: assets/macos/
+          name: macos-${{ matrix.arch }}
+          path: assets/macos/${{ matrix.arch }}/
