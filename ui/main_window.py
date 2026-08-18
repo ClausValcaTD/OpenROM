@@ -283,6 +283,47 @@ class MainWindow(ctk.CTk):
         )
         self.verify_chk.pack(side="left")
 
+        # Output Folder Section
+        ctk.CTkLabel(
+            self.settings_card, text="[Output Folder]",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=TEXT_WHITE
+        ).pack(anchor="w", padx=16, pady=(4, 4))
+
+        out_row = ctk.CTkFrame(self.settings_card, fg_color="transparent")
+        out_row.pack(fill="x", padx=16, pady=(0, 8))
+
+        self.same_as_src_chk = ctk.CTkCheckBox(
+            out_row, text="Same as source",
+            variable=self.same_as_src,
+            text_color=TEXT_WHITE, fg_color=ACCENT_RED,
+            font=ctk.CTkFont(size=12),
+            command=self._on_same_as_src_toggled
+        )
+        self.same_as_src_chk.pack(side="left")
+
+        out_dir_row = ctk.CTkFrame(self.settings_card, fg_color="transparent")
+        out_dir_row.pack(fill="x", padx=16, pady=(0, 8))
+
+        self.out_dir_entry = ctk.CTkEntry(
+            out_dir_row,
+            textvariable=self.output_dir,
+            fg_color=BG_DARK, border_color=BORDER_DARK,
+            text_color=TEXT_WHITE, font=ctk.CTkFont(size=11),
+            state="disabled"
+        )
+        self.out_dir_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        self.out_dir_btn = ctk.CTkButton(
+            out_dir_row, text="Browse",
+            width=70, height=28,
+            fg_color=BORDER_DARK, hover_color="#444444",
+            text_color=TEXT_WHITE, font=ctk.CTkFont(size=11),
+            state="disabled",
+            command=self._browse_output_dir
+        )
+        self.out_dir_btn.pack(side="right")
+
         # Action Buttons Area
         act_row = ctk.CTkFrame(self.settings_card, fg_color="transparent")
         act_row.pack(fill="x", padx=16, pady=(12, 8))
@@ -329,9 +370,10 @@ class MainWindow(ctk.CTk):
                     continue
 
                 default_fmt = valid[0]
+                out = self.output_dir.get().strip() if not self.same_as_src.get() and self.output_dir.get().strip() else os.path.dirname(p)
                 job = ConversionJob(
                     filepath=p,
-                    output_dir=os.path.dirname(p),
+                    output_dir=out,
                     target_format=default_fmt,
                     compression=self.compression.get(),
                     verify=self.verify_after.get()
@@ -502,6 +544,20 @@ class MainWindow(ctk.CTk):
         self.cmd_selected_lbl.configure(text=f"➜ {target} selected")
         cmd_str = get_command_preview(fmt, target, filename)
         self.cmd_str_lbl.configure(text=cmd_str)
+
+    def _on_same_as_src_toggled(self):
+        if self.same_as_src.get():
+            self.out_dir_entry.configure(state="disabled")
+            self.out_dir_btn.configure(state="disabled")
+            self.output_dir.set("")
+        else:
+            self.out_dir_entry.configure(state="normal")
+            self.out_dir_btn.configure(state="normal")
+
+    def _browse_output_dir(self):
+        folder = filedialog.askdirectory()
+        if folder:
+            self.output_dir.set(folder)
 
     # ── Conversion Execution ─────────────────────────────────────────────────
 
