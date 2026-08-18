@@ -95,16 +95,75 @@ class MainWindow(ctk.CTk):
         # Master grid container: 2 columns
         self.grid_columnconfigure(0, weight=1, minsize=420)
         self.grid_columnconfigure(1, weight=1, minsize=440)
-        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=2)
+        self.grid_rowconfigure(1, weight=1)
 
         self._build_left_column()
         self._build_right_column()
+        self._build_terminal()
+
+    # ── Terminal Log ──────────────────────────────────────────────────────────
+
+    def _build_terminal(self):
+        terminal_frame = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=12,
+                                      border_color=BORDER_DARK, border_width=1)
+        terminal_frame.grid(row=1, column=0, columnspan=2,
+                            sticky="nsew", padx=16, pady=(0, 16))
+        terminal_frame.grid_rowconfigure(1, weight=1)
+        terminal_frame.grid_columnconfigure(0, weight=1)
+
+        # Header
+        term_hdr = ctk.CTkFrame(terminal_frame, fg_color="transparent")
+        term_hdr.grid(row=0, column=0, sticky="ew", padx=12, pady=(8, 4))
+
+        ctk.CTkLabel(
+            term_hdr, text="📟 Terminal Log",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=TEXT_WHITE
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            term_hdr, text="Clear",
+            width=60, height=24,
+            fg_color=BORDER_DARK, hover_color="#444444",
+            text_color=TEXT_GRAY, font=ctk.CTkFont(size=11),
+            command=self._clear_terminal
+        ).pack(side="right")
+
+        # Log textbox
+        self.terminal_box = ctk.CTkTextbox(
+            terminal_frame,
+            fg_color=BG_DARK,
+            text_color="#00e676",
+            font=ctk.CTkFont(family="Consolas", size=11),
+            corner_radius=8,
+            wrap="word",
+            state="disabled"
+        )
+        self.terminal_box.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+
+        # Register logger listener
+        from core.logger import get_logger
+        get_logger().add_listener(self._append_terminal)
+
+    def _append_terminal(self, msg: str):
+        def _do():
+            self.terminal_box.configure(state="normal")
+            self.terminal_box.insert("end", msg + "\n")
+            self.terminal_box.see("end")
+            self.terminal_box.configure(state="disabled")
+        self.after(0, _do)
+
+    def _clear_terminal(self):
+        self.terminal_box.configure(state="normal")
+        self.terminal_box.delete("1.0", "end")
+        self.terminal_box.configure(state="disabled")
 
     # ── Left Column ───────────────────────────────────────────────────────────
 
     def _build_left_column(self):
         left_frame = ctk.CTkFrame(self, fg_color="transparent")
-        left_frame.grid(row=0, column=0, sticky="nsew", padx=(16, 8), pady=16)
+        left_frame.grid(row=0, column=0, sticky="nsew", padx=(16, 8), pady=(16, 8))
         left_frame.grid_rowconfigure(2, weight=1)
         left_frame.grid_columnconfigure(0, weight=1)
 
@@ -173,7 +232,7 @@ class MainWindow(ctk.CTk):
 
     def _build_right_column(self):
         right_frame = ctk.CTkFrame(self, fg_color="transparent")
-        right_frame.grid(row=0, column=1, sticky="nsew", padx=(8, 16), pady=16)
+        right_frame.grid(row=0, column=1, sticky="nsew", padx=(8, 16), pady=(16, 8))
         right_frame.grid_rowconfigure(1, weight=1)
         right_frame.grid_columnconfigure(0, weight=1)
 
