@@ -1,14 +1,18 @@
 import os
-import sys
 import datetime
+from core.config import get_config_dir
+
 
 class Logger:
     _instance = None
 
     def __init__(self):
-        os.makedirs("logs", exist_ok=True)
+        # Save logs next to config — proper OS location, not cwd
+        log_dir = os.path.join(get_config_dir(), "logs")
+        os.makedirs(log_dir, exist_ok=True)
+
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        self.log_filepath = os.path.join("logs", f"openrom_{timestamp}.log")
+        self.log_filepath = os.path.join(log_dir, f"openrom_{timestamp}.log")
         self.listeners = []
 
         self.log_file = open(self.log_filepath, "a", encoding="utf-8")
@@ -29,11 +33,8 @@ class Logger:
             self.listeners.remove(callback)
 
     def log(self, msg: str):
-        # Print live to stdout / terminal
         print(msg, flush=True)
-        # Write to log file
         self._write_raw(msg + "\n")
-        # Notify UI listeners
         for listener in list(self.listeners):
             try:
                 listener(msg)
@@ -47,8 +48,16 @@ class Logger:
         except Exception:
             pass
 
+    def close(self):
+        try:
+            self.log_file.close()
+        except Exception:
+            pass
+
+
 def get_logger() -> Logger:
     return Logger.get_instance()
+
 
 def log(msg: str):
     get_logger().log(msg)

@@ -1,3 +1,29 @@
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Logs (written to OS config dir at runtime — never commit these)
+logs/
+*.log
+
+# Runtime config (user-specific)
 config.json
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# PyInstaller
+*.spec
