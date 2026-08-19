@@ -1,7 +1,13 @@
 # .github/FUNDING.yml
 
-github: # جربه — لو مش اشتغل في مصر، هنلغيه
-  - m5devs
+# GitHub Sponsors — جربه
+github: [m5devs]
 
-custom: # Donatr.ee page (بيجمع كل حاجة)
-  - "https://donatr.ee/m5dev"
+# Ko-fi
+ko_fi: m5dev
+
+# Liberapay
+liberapay: m5devs
+
+# Custom — Donatr.ee page
+custom: ["https://donatr.ee/m5dev"]
