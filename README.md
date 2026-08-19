@@ -2,7 +2,7 @@
 
 **Universal ROM Compression Suite** — by M5 Dev
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE).
+[![License: GPL v3 + Commons Clause](https://img.shields.io/badge/License-GPL%20v3%20%2B%20Commons%20Clause-red.svg)](LICENSE)
 [![SourceForge Downloads](https://img.shields.io/sourceforge/dt/openrom.svg?color=2ea043&logo=sourceforge)](https://sourceforge.net/projects/openrom/files/latest/download)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-cyan)]()
 [![Release](https://img.shields.io/github/v/release/M5Devs/OpenROM)](https://github.com/M5Devs/OpenROM/releases/latest)
@@ -111,9 +111,17 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for gu
 
 ---
 
-## 📄 License & Support
+## 📄 License
 
-OpenROM is licensed under **GPL v3**.
+OpenROM is licensed under **GPL v3 + Commons Clause**.
+
+This means:
+- ✅ Free to use personally
+- ✅ Free to study, modify, and contribute
+- ✅ Forks must remain open source (GPL)
+- ❌ Cannot be sold or bundled in a commercial product without written permission
+
+For commercial licensing inquiries: [github.com/M5Devs/OpenROM](https://github.com/M5Devs/OpenROM)
 
 ### 💙 Support OpenROM
 If OpenROM saved you time, consider supporting active development:
