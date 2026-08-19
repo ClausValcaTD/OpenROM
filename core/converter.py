@@ -30,6 +30,14 @@ class ConversionJob:
         self.log_lines     = []
         self.error         = None
         self._temp_files   = []
+        self._file_info    = None            # Cached detect_file() result
+
+    def get_file_info(self):
+        """Return cached file info, detecting only once."""
+        if self._file_info is None:
+            from core.detector import detect_file
+            self._file_info = detect_file(self.filepath)
+        return self._file_info
 
 
 class Converter:
@@ -78,7 +86,7 @@ class Converter:
     # ── dispatch ──────────────────────────────────────────────────────────────
 
     def _dispatch(self, job: ConversionJob) -> bool:
-        info = detect_file(job.filepath)
+        info = job.get_file_info()
         src  = job.filepath
 
         if "error" in info:
@@ -307,16 +315,55 @@ class Converter:
         base = os.path.basename(bin_path).rsplit('.', 1)[0]
         cue_path = os.path.join(output_dir, base + "_auto.cue")
         bin_name = os.path.basename(bin_path)
+        track_mode = self._detect_bin_mode(bin_path)
+        self._log(f"[AUTO-CUE] Detected BIN mode: {track_mode}")
         try:
             with open(cue_path, "w", encoding="utf-8") as f:
                 f.write(f'FILE "{bin_name}" BINARY\n')
-                f.write("  TRACK 01 MODE2/2352\n")
+                f.write(f"  TRACK 01 {track_mode}\n")
                 f.write("    INDEX 01 00:00:00\n")
             self._log(f"[AUTO-CUE] Generated missing CUE file: {os.path.basename(cue_path)}")
             return cue_path
         except Exception as e:
             self._log(f"[WARN] Could not write auto CUE: {e}")
             return None
+
+    def _detect_bin_mode(self, bin_path: str) -> str:
+        """
+        Sniff the first sector of a BIN file to determine its track mode.
+        - MODE1/2048 : 2048-byte sectors (data only, no sync header)
+        - MODE1/2352 : 2352-byte sectors with sync header 00 FF*10 00 + mode byte 01
+        - MODE2/2352 : 2352-byte sectors with sync header 00 FF*10 00 + mode byte 02
+        - AUDIO       : 2352-byte sectors, no recognisable sync header
+        Falls back to MODE2/2352 when the file is too small or unreadable.
+        """
+        SYNC = b'\x00' + b'\xff' * 10 + b'\x00'
+        try:
+            size = os.path.getsize(bin_path)
+            with open(bin_path, "rb") as f:
+                header = f.read(16)
+
+            if len(header) < 16:
+                return "MODE2/2352"
+
+            if header[:12] == SYNC:
+                mode_byte = header[15]
+                if mode_byte == 0x01:
+                    return "MODE1/2352"
+                elif mode_byte == 0x02:
+                    return "MODE2/2352"
+                else:
+                    return "AUDIO"
+
+            # No sync header — likely MODE1/2048 (ISO-style) or raw audio
+            if size % 2048 == 0:
+                return "MODE1/2048"
+            if size % 2352 == 0:
+                return "AUDIO"
+
+            return "MODE2/2352"   # safe fallback
+        except Exception:
+            return "MODE2/2352"
 
 
 def _parse_progress(line: str) -> float | None:
