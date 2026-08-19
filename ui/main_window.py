@@ -422,21 +422,20 @@ class MainWindow(ctk.CTk):
                 ext = f".{get_extension(p)}"
                 if ext not in SUPPORTED_INPUT or p in existing:
                     continue
-                info = detect_file(p)
-                valid = info.get("valid_targets", [])
-                if not valid:
-                    log(f"[SKIP] {os.path.basename(p)} — no valid conversion targets")
-                    continue
-
-                default_fmt = valid[0]
                 out = self.output_dir.get().strip() if not self.same_as_src.get() and self.output_dir.get().strip() else os.path.dirname(p)
                 job = ConversionJob(
                     filepath=p,
                     output_dir=out,
-                    target_format=default_fmt,
+                    target_format="CHD",        # placeholder; resolved after cache warms
                     compression=self.compression.get(),
                     verify=self.verify_after.get()
                 )
+                info = job.get_file_info()      # warms the cache immediately
+                valid = info.get("valid_targets", [])
+                if not valid:
+                    log(f"[SKIP] {os.path.basename(p)} — no valid conversion targets")
+                    continue
+                job.target_format = valid[0]
                 self.jobs.append(job)
                 existing.add(p)
                 added_any = True
@@ -491,7 +490,7 @@ class MainWindow(ctk.CTk):
 
             for i, job in enumerate(self.jobs):
                 is_selected = (i == self.selected_job_index)
-                bg_col = "#202e52" if is_selected else BG_DARK
+                bg_col     = "#202e52" if is_selected else BG_DARK
                 border_col = ACCENT_RED if is_selected else BORDER_DARK
 
                 item_frame = ctk.CTkFrame(
@@ -505,9 +504,18 @@ class MainWindow(ctk.CTk):
                 item_frame.pack(fill="x", pady=3)
                 item_frame.pack_propagate(False)
 
-                info = detect_file(job.filepath)
-                fmt = info.get("format", "ISO")
+                # ── use cached info — no disk read here ──────────────────────
+                info     = job.get_file_info()
+                fmt      = info.get("format", "ISO")
                 badge_bg = info.get("badge_color", ACCENT_RED)
+
+                # Status colour overlay
+                status_colors = {
+                    "Done":       GREEN_DONE,
+                    "Failed":     RED_FAIL,
+                    "Converting": ACCENT_RED,
+                }
+                status_color = status_colors.get(job.status)
 
                 # Icon
                 icon = "📀" if fmt == "ISO" else "💿" if fmt in ("BIN", "CUE") else "📦"
@@ -520,18 +528,42 @@ class MainWindow(ctk.CTk):
                 ctk.CTkLabel(
                     item_frame, text=filename,
                     font=ctk.CTkFont(size=12, weight="bold" if is_selected else "normal"),
-                    text_color=TEXT_WHITE, anchor="w", width=180
+                    text_color=TEXT_WHITE, anchor="w", width=160
                 ).pack(side="left", padx=4)
+
+                # ── X remove button (right-most) ─────────────────────────────
+                if not self._converting:
+                    remove_btn = ctk.CTkButton(
+                        item_frame, text="✕",
+                        width=24, height=24,
+                        fg_color="transparent",
+                        hover_color="#3a1a1a",
+                        text_color=TEXT_GRAY,
+                        font=ctk.CTkFont(size=11),
+                        command=lambda idx=i: self._remove_job(idx)
+                    )
+                    remove_btn.pack(side="right", padx=(2, 8))
 
                 # Badge
                 badge = ctk.CTkLabel(
                     item_frame, text=f" {fmt} ",
                     font=ctk.CTkFont(size=10, weight="bold"),
-                    fg_color=badge_bg, text_color=TEXT_WHITE, corner_radius=4
+                    fg_color=status_color if status_color else badge_bg,
+                    text_color=TEXT_WHITE, corner_radius=4
                 )
-                badge.pack(side="right", padx=(4, 10))
+                badge.pack(side="right", padx=(4, 4))
 
-                # Bind click selection
+                # Status label if converting/done/failed
+                if job.status != "Queued":
+                    status_lbl = ctk.CTkLabel(
+                        item_frame,
+                        text=job.status,
+                        font=ctk.CTkFont(size=10),
+                        text_color=status_color or TEXT_GRAY,
+                    )
+                    status_lbl.pack(side="right", padx=(0, 4))
+
+                # Bind click → select
                 for w in (item_frame, badge):
                     w.bind("<Button-1>", lambda e, idx=i: self._select_job(idx))
                     w.configure(cursor="hand2")
@@ -549,7 +581,7 @@ class MainWindow(ctk.CTk):
             return
 
         job = self.jobs[self.selected_job_index]
-        info = detect_file(job.filepath)
+        info = job.get_file_info()              # cached — no disk read
 
         filename = os.path.basename(job.filepath)
         fmt      = info.get("format", "ISO")
@@ -630,22 +662,28 @@ class MainWindow(ctk.CTk):
         self.progress_bar.set(0)
 
         def run():
+            # Snapshot under lock so UI mutations (remove/clear) don't affect
+            # the running batch — jobs that were queued at start-time finish.
             with self._jobs_lock:
-                jobs_to_run = list(self.jobs)
+                jobs_to_run = [j for j in self.jobs if j.status == "Queued"]
 
+            total = len(jobs_to_run)
             for i, job in enumerate(jobs_to_run):
                 if self.converter._stop_flag:
                     break
 
                 job.verify = self.verify_after.get()
-                log(f"[BATCH] Starting conversion {i+1}/{len(jobs_to_run)}: {os.path.basename(job.filepath)}")
+                log(f"[BATCH] Starting conversion {i+1}/{total}: {os.path.basename(job.filepath)}")
 
                 ok = self.converter.convert(job)
 
+                # Refresh queue row on the main thread after each job
+                self.after(0, self._refresh_queue_ui)
+
                 if ok:
-                    log(f"[BATCH] Completed: {os.path.basename(job.filepath)}")
+                    log(f"[BATCH] ✅ Completed: {os.path.basename(job.filepath)}")
                 else:
-                    log(f"[BATCH] Failed: {os.path.basename(job.filepath)}")
+                    log(f"[BATCH] ❌ Failed: {os.path.basename(job.filepath)}")
 
             self._converting = False
             self.after(0, self._conversion_finished)
