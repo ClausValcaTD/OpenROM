@@ -1,4 +1,4 @@
-# ⬡ OpenROM v2.0
+# ⬡ OpenROM
 
 **Universal ROM Compression Suite** — by M5 Dev
 
