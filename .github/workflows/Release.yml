@@ -46,7 +46,7 @@ jobs:
             --console `
             --name "openrom-cli" `
             --add-data "assets;assets" `
-            cli.py
+            core/cli.py
 
       - name: Package ZIP
         run: |
@@ -106,7 +106,7 @@ jobs:
             --console \
             --name "openrom-cli" \
             --add-data "assets:assets" \
-            cli.py
+            core/cli.py
 
       - name: Download appimagetool
         run: |
@@ -202,7 +202,7 @@ jobs:
             --name "openrom-cli" \
             --add-data "assets:assets" \
             --target-arch ${{ matrix.arch }} \
-            cli.py
+            core/cli.py
 
       - name: Create DMG
         run: |
