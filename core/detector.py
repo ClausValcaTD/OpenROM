@@ -177,14 +177,40 @@ def _guess_platform(filepath: str, fmt: str, size: int) -> str:
     if fmt == "XISO":
         return "Xbox"
     if fmt in ("ISO", "BIN", "IMG", "CUE"):
+        # Try to detect Xbox ISO by reading actual header magic bytes
+        if fmt in ("ISO", "IMG") and _is_xbox_iso(filepath):
+            return "Xbox"
         mb = size / (1024 * 1024)
         if mb < 800:
             return "PS1"
-        elif mb < 2000:
+        elif mb < 4700:
             return "PS2 / GC"
         else:
             return "PS2 / Xbox"
     return PLATFORM_MAP.get(fmt, "ROM File")
+
+def _is_xbox_iso(filepath: str) -> bool:
+    """
+    Detect Xbox / Xbox 360 ISO by checking for known magic strings
+    at fixed sector offsets used by the XDVDFS filesystem.
+
+    Xbox original : magic "MICROSOFT*XBOX*MEDIA" at offset 0x10000 (sector 32)
+                    and mirrored near the end of the volume.
+    Xbox 360      : same magic but also appears at offset 0x2090000.
+    We check the two most common locations; if either matches, it's Xbox.
+    """
+    XBOX_MAGIC = b"MICROSOFT*XBOX*MEDIA"
+    CHECK_OFFSETS = [0x10000, 0x2090000]
+    try:
+        with open(filepath, "rb") as f:
+            for offset in CHECK_OFFSETS:
+                f.seek(offset)
+                header = f.read(20)
+                if header == XBOX_MAGIC:
+                    return True
+    except Exception:
+        pass
+    return False
 
 def _guess_chd_type(size: int) -> str:
     mb = size / (1024 * 1024)
