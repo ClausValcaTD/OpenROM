@@ -3,16 +3,16 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version (e.g., 2.0.0)'
+        description: 'Version (e.g., 2.2.0)'
         required: true
-        default: '2.0.0'
+        default: '2.2.0'
 
 permissions:
   contents: write
 
 jobs:
 
-  # Windows - Portable EXE
+  # ── Windows — Portable ZIP (GUI + CLI) ──────────────────────────────────────
   build-windows:
     runs-on: windows-latest
     steps:
@@ -28,7 +28,7 @@ jobs:
           pip install -r requirements.txt
           pip install "pyinstaller>=6.0.0"
 
-      - name: Build EXE
+      - name: Build GUI (OpenROM.exe)
         run: |
           pyinstaller `
             --noconfirm `
@@ -38,18 +38,31 @@ jobs:
             --icon "assets/icons/icon.ico" `
             main.py
 
-      - name: Zip portable
+      - name: Build CLI (openrom-cli.exe)
         run: |
-          cd dist
-          Compress-Archive -Path OpenROM.exe -DestinationPath OpenROM-v${{ github.event.inputs.version }}_Windows_Portable.zip
+          pyinstaller `
+            --noconfirm `
+            --onefile `
+            --console `
+            --name "openrom-cli" `
+            --add-data "assets;assets" `
+            cli.py
+
+      - name: Package ZIP
+        run: |
+          mkdir release
+          cp dist/OpenROM.exe release/
+          cp dist/openrom-cli.exe release/
+          cd release
+          Compress-Archive -Path * -DestinationPath ../OpenROM-v${{ github.event.inputs.version }}_Windows_Portable.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: OpenROM_Windows
-          path: dist/OpenROM-v${{ github.event.inputs.version }}_Windows_Portable.zip
+          path: OpenROM-v${{ github.event.inputs.version }}_Windows_Portable.zip
 
-  # Linux - AppImage
+  # ── Linux — AppImage (GUI) + binary (CLI) in ZIP ───────────────────────────
   build-linux:
     runs-on: ubuntu-22.04
     steps:
@@ -62,7 +75,12 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update -q
+          # Remove unneeded third-party repos before update to avoid slow mirrors
+          sudo rm -f /etc/apt/sources.list.d/google-chrome*.list \
+                     /etc/apt/sources.list.d/microsoft-*.list \
+                     /etc/apt/sources.list.d/azure-cli.list \
+                     /etc/apt/sources.list.d/github-cli.list
+          sudo apt-get update -qq
           sudo apt-get install -y -q python3-tk libfuse2 wget fuse
 
       - name: Install Python dependencies
@@ -70,7 +88,7 @@ jobs:
           pip install -r requirements.txt
           pip install "pyinstaller>=6.0.0"
 
-      - name: Build binary
+      - name: Build GUI binary
         run: |
           pyinstaller \
             --noconfirm \
@@ -79,6 +97,16 @@ jobs:
             --name "OpenROM" \
             --add-data "assets:assets" \
             main.py
+
+      - name: Build CLI binary
+        run: |
+          pyinstaller \
+            --noconfirm \
+            --onefile \
+            --console \
+            --name "openrom-cli" \
+            --add-data "assets:assets" \
+            cli.py
 
       - name: Download appimagetool
         run: |
@@ -115,13 +143,22 @@ jobs:
           ARCH=x86_64 ./appimagetool AppDir OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.AppImage
           chmod +x OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.AppImage
 
+      - name: Package ZIP (AppImage + CLI)
+        run: |
+          mkdir release
+          cp OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.AppImage release/
+          cp dist/openrom-cli release/
+          chmod +x release/openrom-cli
+          cd release
+          zip -r ../OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.zip .
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: OpenROM_Linux
-          path: OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.AppImage
+          path: OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.zip
 
-  # macOS - DMG
+  # ── macOS — DMG (GUI) + CLI binary in ZIP ──────────────────────────────────
   build-macos:
     strategy:
       matrix:
@@ -144,7 +181,7 @@ jobs:
           pip install -r requirements.txt
           pip install "pyinstaller>=6.0.0"
 
-      - name: Build app bundle
+      - name: Build GUI app bundle
         run: |
           pyinstaller \
             --noconfirm \
@@ -155,6 +192,17 @@ jobs:
             --icon "assets/icons/icon.icns" \
             --target-arch ${{ matrix.arch }} \
             main.py
+
+      - name: Build CLI binary
+        run: |
+          pyinstaller \
+            --noconfirm \
+            --onefile \
+            --console \
+            --name "openrom-cli" \
+            --add-data "assets:assets" \
+            --target-arch ${{ matrix.arch }} \
+            cli.py
 
       - name: Create DMG
         run: |
@@ -167,13 +215,22 @@ jobs:
             -format UDZO \
             OpenROM-v${{ github.event.inputs.version }}_macOS_${{ matrix.arch }}.dmg
 
+      - name: Package ZIP (DMG + CLI)
+        run: |
+          mkdir release
+          cp OpenROM-v${{ github.event.inputs.version }}_macOS_${{ matrix.arch }}.dmg release/
+          cp dist/openrom-cli release/
+          chmod +x release/openrom-cli
+          cd release
+          zip -r ../OpenROM-v${{ github.event.inputs.version }}_macOS_${{ matrix.arch }}.zip .
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: OpenROM_macOS_${{ matrix.arch }}
-          path: OpenROM-v${{ github.event.inputs.version }}_macOS_${{ matrix.arch }}.dmg
+          path: OpenROM-v${{ github.event.inputs.version }}_macOS_${{ matrix.arch }}.zip
 
-  # Create GitHub Release
+  # ── GitHub Release ──────────────────────────────────────────────────────────
   release:
     needs: [build-windows, build-linux, build-macos]
     runs-on: ubuntu-latest
@@ -193,6 +250,17 @@ jobs:
 
             Universal ROM Compression Suite for retro gaming.
 
+            Each download includes:
+            - **GUI** — graphical interface (OpenROM / OpenROM.app)
+            - **CLI** — command-line tool (`openrom-cli`)
+
+            ### CLI usage
+            ```
+            openrom-cli --input game.iso --format CHD
+            openrom-cli --folder /roms/ --format CHD --compression Max
+            openrom-cli --list-formats
+            ```
+
             ### Supported Formats
             - PS1: BIN/CUE → CHD, ECM
             - PS2: ISO → CHD, CSO
@@ -203,15 +271,15 @@ jobs:
             | Platform | File |
             |----------|------|
             | Windows | `OpenROM-v${{ github.event.inputs.version }}_Windows_Portable.zip` |
-            | Linux | `OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.AppImage` |
-            | macOS Apple Silicon | `OpenROM-v${{ github.event.inputs.version }}_macOS_arm64.dmg` |
-            | macOS Intel | `OpenROM-v${{ github.event.inputs.version }}_macOS_x86_64.dmg` |
+            | Linux | `OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.zip` |
+            | macOS Apple Silicon | `OpenROM-v${{ github.event.inputs.version }}_macOS_arm64.zip` |
+            | macOS Intel | `OpenROM-v${{ github.event.inputs.version }}_macOS_x86_64.zip` |
 
           files: |
             artifacts/OpenROM_Windows/OpenROM-v${{ github.event.inputs.version }}_Windows_Portable.zip
-            artifacts/OpenROM_Linux/OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.AppImage
-            artifacts/OpenROM_macOS_arm64/OpenROM-v${{ github.event.inputs.version }}_macOS_arm64.dmg
-            artifacts/OpenROM_macOS_x86_64/OpenROM-v${{ github.event.inputs.version }}_macOS_x86_64.dmg
+            artifacts/OpenROM_Linux/OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.zip
+            artifacts/OpenROM_macOS_arm64/OpenROM-v${{ github.event.inputs.version }}_macOS_arm64.zip
+            artifacts/OpenROM_macOS_x86_64/OpenROM-v${{ github.event.inputs.version }}_macOS_x86_64.zip
           draft: false
           prerelease: false
         env:
