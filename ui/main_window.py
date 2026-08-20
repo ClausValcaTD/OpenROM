@@ -12,7 +12,7 @@ from core.detector import (
     get_command_preview, get_badge_color, get_extension
 )
 from core.converter import Converter, ConversionJob
-from core.validator import verify_chd
+from core.validator import verify_chd, get_chd_info
 from core.logger import log
 
 # ── Color Palette (Matching Design Specifications) ───────────────────────────
@@ -528,8 +528,20 @@ class MainWindow(ctk.CTk):
                 ctk.CTkLabel(
                     item_frame, text=filename,
                     font=ctk.CTkFont(size=12, weight="bold" if is_selected else "normal"),
-                    text_color=TEXT_WHITE, anchor="w", width=160
+                    text_color=TEXT_WHITE, anchor="w", width=140
                 ).pack(side="left", padx=4)
+
+                # Per-job Progress Bar
+                job_progress_bar = ctk.CTkProgressBar(
+                    item_frame,
+                    fg_color=BG_DARK,
+                    progress_color=ACCENT_RED,
+                    height=6,
+                    width=70
+                )
+                job_progress_bar.pack(side="left", padx=4)
+                prog_val = job.progress / 100.0 if job.progress > 1.0 else job.progress
+                job_progress_bar.set(max(0.0, min(1.0, prog_val)))
 
                 # ── X remove button (right-most) ─────────────────────────────
                 if not self._converting:
@@ -573,6 +585,11 @@ class MainWindow(ctk.CTk):
         for child in self.target_buttons_frame.winfo_children():
             child.destroy()
 
+        # Clear extra dynamic widgets in info_card
+        for child in self.info_card.winfo_children():
+            if child not in (self.info_icon_title, self.info_meta):
+                child.destroy()
+
         if self.selected_job_index is None or self.selected_job_index >= len(self.jobs):
             self.info_icon_title.configure(text="📀 No File Selected")
             self.info_meta.configure(text="Select or drop a file to configure conversion")
@@ -591,6 +608,20 @@ class MainWindow(ctk.CTk):
         icon = "📀" if fmt == "ISO" else "💿" if fmt in ("BIN", "CUE") else "📦"
         self.info_icon_title.configure(text=f"{icon} {filename}")
         self.info_meta.configure(text=f"{size_str} • {fmt} • {platform}")
+
+        if fmt == "CHD":
+            chd_data = get_chd_info(job.filepath)
+            if chd_data:
+                chd_text = "\n".join(f"{k}: {v}" for k, v in chd_data.items())
+                chd_lbl = ctk.CTkLabel(
+                    self.info_card,
+                    text=chd_text,
+                    font=ctk.CTkFont(family="Consolas", size=10),
+                    text_color=TEXT_GRAY,
+                    anchor="w",
+                    justify="left"
+                )
+                chd_lbl.pack(fill="x", padx=12, pady=(0, 10))
 
         valid_targets = info.get("valid_targets", [])
         if not valid_targets:
@@ -709,6 +740,7 @@ class MainWindow(ctk.CTk):
     def _on_progress(self, job: ConversionJob, pct: float):
         def _do():
             self.progress_bar.set(pct / 100.0)
+            self._refresh_queue_ui()
         self.after(0, _do)
 
     # ── Dialogs ───────────────────────────────────────────────────────────────

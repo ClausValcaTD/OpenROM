@@ -97,10 +97,10 @@ python main.py
 build.bat
 
 # Linux
-chmod +x build.sh && ./build.sh
+./build_linux.sh
 
 # macOS
-chmod +x build_mac.sh && ./build_mac.sh
+./build_mac.sh
 ```
 
 ---
