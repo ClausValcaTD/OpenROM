@@ -256,8 +256,13 @@ class MainWindow(ctk.CTk):
         )
         about_btn.pack(side="right")
 
-        # Main Settings Card
-        self.settings_card = ctk.CTkFrame(right_frame, fg_color=CARD_BG, corner_radius=12, border_color=BORDER_DARK, border_width=1)
+        # Main Settings Card — scrollable so Convert button never gets clipped
+        self.settings_card = ctk.CTkScrollableFrame(
+            right_frame, fg_color=CARD_BG, corner_radius=12,
+            border_color=BORDER_DARK, border_width=1,
+            scrollbar_button_color=BORDER_DARK,
+            scrollbar_button_hover_color="#444444",
+        )
         self.settings_card.grid(row=1, column=0, sticky="nsew")
         self.settings_card.grid_columnconfigure(0, weight=1)
 
