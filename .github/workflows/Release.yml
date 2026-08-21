@@ -1,0 +1,286 @@
+name: Build Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g., 2.2.0)'
+        required: true
+        default: '2.2.0'
+
+permissions:
+  contents: write
+
+jobs:
+
+  # ── Windows — Portable ZIP (GUI + CLI) ──────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install "pyinstaller>=6.0.0"
+
+      - name: Build GUI (OpenROM.exe)
+        run: |
+          pyinstaller `
+            --noconfirm `
+            --onefile `
+            --name "OpenROM" `
+            --add-data "assets;assets" `
+            --icon "assets/icons/icon.ico" `
+            main.py
+
+      - name: Build CLI (openrom-cli.exe)
+        run: |
+          pyinstaller `
+            --noconfirm `
+            --onefile `
+            --console `
+            --name "openrom-cli" `
+            --add-data "assets;assets" `
+            core/cli.py
+
+      - name: Package ZIP
+        run: |
+          mkdir release
+          cp dist/OpenROM.exe release/
+          cp dist/openrom-cli.exe release/
+          cd release
+          Compress-Archive -Path * -DestinationPath ../OpenROM-v${{ github.event.inputs.version }}_Windows_Portable.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenROM_Windows
+          path: OpenROM-v${{ github.event.inputs.version }}_Windows_Portable.zip
+
+  # ── Linux — AppImage (GUI) + binary (CLI) in ZIP ───────────────────────────
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: |
+          # Remove unneeded third-party repos before update to avoid slow mirrors
+          sudo rm -f /etc/apt/sources.list.d/google-chrome*.list \
+                     /etc/apt/sources.list.d/microsoft-*.list \
+                     /etc/apt/sources.list.d/azure-cli.list \
+                     /etc/apt/sources.list.d/github-cli.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -q python3-tk libfuse2 wget fuse
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install "pyinstaller>=6.0.0"
+
+      - name: Build GUI binary
+        run: |
+          pyinstaller \
+            --noconfirm \
+            --onedir \
+            --windowed \
+            --name "OpenROM" \
+            --add-data "assets:assets" \
+            main.py
+
+      - name: Build CLI binary
+        run: |
+          pyinstaller \
+            --noconfirm \
+            --onefile \
+            --console \
+            --name "openrom-cli" \
+            --add-data "assets:assets" \
+            core/cli.py
+
+      - name: Download appimagetool
+        run: |
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          chmod +x appimagetool
+
+      - name: Create AppDir structure
+        run: |
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          cp -r dist/OpenROM/* AppDir/usr/bin/
+          cp assets/icons/icon.png AppDir/openrom.png
+          cp assets/icons/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/openrom.png
+
+          cat > AppDir/OpenROM.desktop << EOF
+          [Desktop Entry]
+          Name=OpenROM
+          Exec=OpenROM
+          Icon=openrom
+          Type=Application
+          Categories=Utility;
+          Comment=Universal ROM Compression Suite
+          EOF
+
+          cat > AppDir/AppRun << EOF
+          #!/bin/bash
+          HERE="\$(dirname "\$(readlink -f "\${0}")")"
+          exec "\$HERE/usr/bin/OpenROM" "\$@"
+          EOF
+          chmod +x AppDir/AppRun
+
+      - name: Build AppImage
+        run: |
+          ARCH=x86_64 ./appimagetool AppDir OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.AppImage
+          chmod +x OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.AppImage
+
+      - name: Package ZIP (AppImage + CLI)
+        run: |
+          mkdir release
+          cp OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.AppImage release/
+          cp dist/openrom-cli release/
+          chmod +x release/openrom-cli
+          cd release
+          zip -r ../OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenROM_Linux
+          path: OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.zip
+
+  # ── macOS — DMG (GUI) + CLI binary in ZIP ──────────────────────────────────
+  build-macos:
+    strategy:
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+          - os: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install "pyinstaller>=6.0.0"
+
+      - name: Build GUI app bundle
+        run: |
+          pyinstaller \
+            --noconfirm \
+            --onefile \
+            --windowed \
+            --name "OpenROM" \
+            --add-data "assets:assets" \
+            --icon "assets/icons/icon.icns" \
+            --target-arch ${{ matrix.arch }} \
+            main.py
+
+      - name: Build CLI binary
+        run: |
+          pyinstaller \
+            --noconfirm \
+            --onefile \
+            --console \
+            --name "openrom-cli" \
+            --add-data "assets:assets" \
+            --target-arch ${{ matrix.arch }} \
+            core/cli.py
+
+      - name: Create DMG
+        run: |
+          mkdir -p dmg_contents
+          cp -r dist/OpenROM dmg_contents/
+          hdiutil create \
+            -volname "OpenROM" \
+            -srcfolder dmg_contents \
+            -ov \
+            -format UDZO \
+            OpenROM-v${{ github.event.inputs.version }}_macOS_${{ matrix.arch }}.dmg
+
+      - name: Package ZIP (DMG + CLI)
+        run: |
+          mkdir release
+          cp OpenROM-v${{ github.event.inputs.version }}_macOS_${{ matrix.arch }}.dmg release/
+          cp dist/openrom-cli release/
+          chmod +x release/openrom-cli
+          cd release
+          zip -r ../OpenROM-v${{ github.event.inputs.version }}_macOS_${{ matrix.arch }}.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenROM_macOS_${{ matrix.arch }}
+          path: OpenROM-v${{ github.event.inputs.version }}_macOS_${{ matrix.arch }}.zip
+
+  # ── GitHub Release ──────────────────────────────────────────────────────────
+  release:
+    needs: [build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.event.inputs.version }}
+          name: OpenROM v${{ github.event.inputs.version }}
+          body: |
+            ## OpenROM v${{ github.event.inputs.version }}
+
+            Universal ROM Compression Suite for retro gaming.
+
+            Each download includes:
+            - **GUI** — graphical interface (OpenROM / OpenROM.app)
+            - **CLI** — command-line tool (`openrom-cli`)
+
+            ### CLI usage
+            ```
+            openrom-cli --input game.iso --format CHD
+            openrom-cli --folder /roms/ --format CHD --compression Max
+            openrom-cli --list-formats
+            ```
+
+            ### Supported Formats
+            - PS1: BIN/CUE → CHD, ECM
+            - PS2: ISO → CHD, CSO
+            - GameCube/Wii: ISO → RVZ
+            - Xbox: ISO → XISO
+
+            ### Downloads
+            | Platform | File |
+            |----------|------|
+            | Windows | `OpenROM-v${{ github.event.inputs.version }}_Windows_Portable.zip` |
+            | Linux | `OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.zip` |
+            | macOS Apple Silicon | `OpenROM-v${{ github.event.inputs.version }}_macOS_arm64.zip` |
+            | macOS Intel | `OpenROM-v${{ github.event.inputs.version }}_macOS_x86_64.zip` |
+
+          files: |
+            artifacts/OpenROM_Windows/OpenROM-v${{ github.event.inputs.version }}_Windows_Portable.zip
+            artifacts/OpenROM_Linux/OpenROM-v${{ github.event.inputs.version }}_Linux_x86_64.zip
+            artifacts/OpenROM_macOS_arm64/OpenROM-v${{ github.event.inputs.version }}_macOS_arm64.zip
+            artifacts/OpenROM_macOS_x86_64/OpenROM-v${{ github.event.inputs.version }}_macOS_x86_64.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

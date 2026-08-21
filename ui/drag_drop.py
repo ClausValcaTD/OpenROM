@@ -82,11 +82,13 @@ class DragDropFrame(ctk.CTkFrame):
 
     def _bind_drag(self):
         try:
-            self.drop_target_register("DND_Files")   # type: ignore
+            self.drop_target_register("DND_Files")    # type: ignore
             self.dnd_bind("<<Drop>>", self._on_drop)  # type: ignore
             self._set_hover_bindings()
+            self._dnd_available = True
         except Exception:
-            pass
+            self._dnd_available = False
+            self._show_dnd_unavailable()
 
     def _on_drop(self, event):
         raw = event.data
@@ -111,6 +113,17 @@ class DragDropFrame(ctk.CTkFrame):
             self.dnd_bind("<<DragLeave>>", lambda e: self._set_normal())  # type: ignore
         except Exception:
             pass
+
+    def _show_dnd_unavailable(self):
+        """Add a small notice badge when tkinterdnd2 is not available."""
+        notice = ctk.CTkLabel(
+            self,
+            text="⚠ Drag & Drop unavailable — use Browse",
+            font=ctk.CTkFont(size=10),
+            text_color="#f9a825",
+            fg_color="transparent",
+        )
+        notice.place(relx=0.5, rely=0.92, anchor="center")
 
     def _set_hover(self):
         self.configure(border_color=ACCENT_RED, fg_color="#1d2a4a")

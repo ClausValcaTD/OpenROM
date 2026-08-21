@@ -11,9 +11,9 @@ from core.logger import log as global_log
 from core.validator import verify_chd
 
 CHD_COMPRESSION = {
-    "Normal": "none",
-    "High":   "cdlz",
-    "Max":    "cdlz,zlib,flac",
+    "Normal": "cdlz",           # balanced — fast and good ratio
+    "High":   "cdlz,zlib",     # slower, better ratio
+    "Max":    "cdlz,zlib,flac", # slowest, best ratio
 }
 
 
@@ -30,6 +30,14 @@ class ConversionJob:
         self.log_lines     = []
         self.error         = None
         self._temp_files   = []
+        self._file_info    = None            # Cached detect_file() result
+
+    def get_file_info(self):
+        """Return cached file info, detecting only once."""
+        if self._file_info is None:
+            from core.detector import detect_file
+            self._file_info = detect_file(self.filepath)
+        return self._file_info
 
 
 class Converter:
@@ -78,7 +86,7 @@ class Converter:
     # ── dispatch ──────────────────────────────────────────────────────────────
 
     def _dispatch(self, job: ConversionJob) -> bool:
-        info = detect_file(job.filepath)
+        info = job.get_file_info()
         src  = job.filepath
 
         if "error" in info:
@@ -134,7 +142,9 @@ class Converter:
         if fmt in ("GDI", "CUE", "BIN", "CDI"):
             sub_cmd = "createcd"
         elif fmt in ("ISO", "IMG"):
-            sub_cmd = "createdvd"
+            # PS1 images are CD-based — must use createcd not createdvd
+            platform = info.get("platform", "")
+            sub_cmd = "createcd" if "PS1" in platform else "createdvd"
         else:
             sub_cmd = "createcd"
 
@@ -231,19 +241,25 @@ class Converter:
     # ── XISO conversion ───────────────────────────────────────────────────────
 
     def _to_xiso(self, job: ConversionJob, src: str) -> bool:
-        """ISO → XISO via extract-xiso -r"""
-        xiso = get_tool_path("xiso")
+        """ISO → XISO via extract-xiso -r (repack in place)"""
+        xiso = get_tool_path("extract-xiso")
         cmd  = [xiso, "-r", src]
-        self._log(f"[XISO] {os.path.basename(src)} — generating XISO...")
+        self._log(f"[XISO] {os.path.basename(src)} — repacking to XISO...")
         return self._run(cmd, job)
 
     def _xiso_to_iso(self, job: ConversionJob, src: str) -> bool:
-        """XISO → ISO via extract-xiso -x"""
-        xiso = get_tool_path("xiso")
-        base = os.path.basename(src).rsplit('.', 1)[0]
-        out_dir = os.path.join(job.output_dir, base)
-        cmd  = [xiso, "-x", src, "-d", out_dir]
-        self._log(f"[XISO→ISO] Extracting XISO {os.path.basename(src)} to {out_dir}...")
+        """
+        XISO → extracted files via extract-xiso.
+        extract-xiso -x extracts to a folder — no direct single-ISO output.
+        We extract to a named subfolder and inform the user.
+        """
+        xiso    = get_tool_path("extract-xiso")
+        base    = os.path.basename(src).rsplit('.', 1)[0]
+        out_dir = os.path.join(job.output_dir, base + "_extracted")
+        os.makedirs(out_dir, exist_ok=True)
+        cmd = [xiso, "-x", src, "-d", out_dir]
+        self._log(f"[XISO→EXTRACT] Extracting {os.path.basename(src)} → {out_dir}")
+        self._log(f"[XISO→EXTRACT] Note: output is extracted files, not a single ISO.")
         return self._run(cmd, job)
 
     # ── helpers ───────────────────────────────────────────────────────────────
@@ -307,16 +323,55 @@ class Converter:
         base = os.path.basename(bin_path).rsplit('.', 1)[0]
         cue_path = os.path.join(output_dir, base + "_auto.cue")
         bin_name = os.path.basename(bin_path)
+        track_mode = self._detect_bin_mode(bin_path)
+        self._log(f"[AUTO-CUE] Detected BIN mode: {track_mode}")
         try:
             with open(cue_path, "w", encoding="utf-8") as f:
                 f.write(f'FILE "{bin_name}" BINARY\n')
-                f.write("  TRACK 01 MODE2/2352\n")
+                f.write(f"  TRACK 01 {track_mode}\n")
                 f.write("    INDEX 01 00:00:00\n")
             self._log(f"[AUTO-CUE] Generated missing CUE file: {os.path.basename(cue_path)}")
             return cue_path
         except Exception as e:
             self._log(f"[WARN] Could not write auto CUE: {e}")
             return None
+
+    def _detect_bin_mode(self, bin_path: str) -> str:
+        """
+        Sniff the first sector of a BIN file to determine its track mode.
+        - MODE1/2048 : 2048-byte sectors (data only, no sync header)
+        - MODE1/2352 : 2352-byte sectors with sync header 00 FF*10 00 + mode byte 01
+        - MODE2/2352 : 2352-byte sectors with sync header 00 FF*10 00 + mode byte 02
+        - AUDIO       : 2352-byte sectors, no recognisable sync header
+        Falls back to MODE2/2352 when the file is too small or unreadable.
+        """
+        SYNC = b'\x00' + b'\xff' * 10 + b'\x00'
+        try:
+            size = os.path.getsize(bin_path)
+            with open(bin_path, "rb") as f:
+                header = f.read(16)
+
+            if len(header) < 16:
+                return "MODE2/2352"
+
+            if header[:12] == SYNC:
+                mode_byte = header[15]
+                if mode_byte == 0x01:
+                    return "MODE1/2352"
+                elif mode_byte == 0x02:
+                    return "MODE2/2352"
+                else:
+                    return "AUDIO"
+
+            # No sync header — likely MODE1/2048 (ISO-style) or raw audio
+            if size % 2048 == 0:
+                return "MODE1/2048"
+            if size % 2352 == 0:
+                return "AUDIO"
+
+            return "MODE2/2352"   # safe fallback
+        except Exception:
+            return "MODE2/2352"
 
 
 def _parse_progress(line: str) -> float | None:

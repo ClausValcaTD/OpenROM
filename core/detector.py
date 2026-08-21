@@ -173,18 +173,62 @@ def _guess_platform(filepath: str, fmt: str, size: int) -> str:
     if fmt == "GDI":
         return "Dreamcast"
     if fmt in ("CSO", "ZSO"):
-        return "PSP / PS2"
+        return "PSP" if _is_psp_iso_size(size) else "PSP / PS2"
     if fmt == "XISO":
         return "Xbox"
     if fmt in ("ISO", "BIN", "IMG", "CUE"):
+        if fmt in ("ISO", "IMG"):
+            if _is_xbox_iso(filepath):
+                return "Xbox"
+            if _is_psp_iso(filepath):
+                return "PSP"
         mb = size / (1024 * 1024)
         if mb < 800:
             return "PS1"
-        elif mb < 2000:
+        elif mb < 4700:
             return "PS2 / GC"
         else:
             return "PS2 / Xbox"
     return PLATFORM_MAP.get(fmt, "ROM File")
+
+def _is_psp_iso(filepath: str) -> bool:
+    """
+    Detect PSP UMD ISO by scanning the first 64KB for PSP_GAME or UMD_DATA
+    markers — PSP UMDs always contain a /PSP_GAME/ root directory.
+    """
+    try:
+        with open(filepath, "rb") as f:
+            header = f.read(65536)
+        return b"PSP_GAME" in header or b"UMD_DATA" in header
+    except Exception:
+        return False
+
+def _is_psp_iso_size(size: int) -> bool:
+    """CSO/ZSO files under 2GB are almost certainly PSP."""
+    return size < 2 * 1024 * 1024 * 1024
+
+def _is_xbox_iso(filepath: str) -> bool:
+    """
+    Detect Xbox / Xbox 360 ISO by checking for known magic strings
+    at fixed sector offsets used by the XDVDFS filesystem.
+
+    Xbox original : magic "MICROSOFT*XBOX*MEDIA" at offset 0x10000 (sector 32)
+                    and mirrored near the end of the volume.
+    Xbox 360      : same magic but also appears at offset 0x2090000.
+    We check the two most common locations; if either matches, it's Xbox.
+    """
+    XBOX_MAGIC = b"MICROSOFT*XBOX*MEDIA"
+    CHECK_OFFSETS = [0x10000, 0x2090000]
+    try:
+        with open(filepath, "rb") as f:
+            for offset in CHECK_OFFSETS:
+                f.seek(offset)
+                header = f.read(20)
+                if header == XBOX_MAGIC:
+                    return True
+    except Exception:
+        pass
+    return False
 
 def _guess_chd_type(size: int) -> str:
     mb = size / (1024 * 1024)

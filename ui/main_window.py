@@ -12,7 +12,7 @@ from core.detector import (
     get_command_preview, get_badge_color, get_extension
 )
 from core.converter import Converter, ConversionJob
-from core.validator import verify_chd
+from core.validator import verify_chd, get_chd_info
 from core.logger import log
 
 # ── Color Palette (Matching Design Specifications) ───────────────────────────
@@ -95,16 +95,75 @@ class MainWindow(ctk.CTk):
         # Master grid container: 2 columns
         self.grid_columnconfigure(0, weight=1, minsize=420)
         self.grid_columnconfigure(1, weight=1, minsize=440)
-        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=2)
+        self.grid_rowconfigure(1, weight=1)
 
         self._build_left_column()
         self._build_right_column()
+        self._build_terminal()
+
+    # ── Terminal Log ──────────────────────────────────────────────────────────
+
+    def _build_terminal(self):
+        terminal_frame = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=12,
+                                      border_color=BORDER_DARK, border_width=1)
+        terminal_frame.grid(row=1, column=0, columnspan=2,
+                            sticky="nsew", padx=16, pady=(0, 16))
+        terminal_frame.grid_rowconfigure(1, weight=1)
+        terminal_frame.grid_columnconfigure(0, weight=1)
+
+        # Header
+        term_hdr = ctk.CTkFrame(terminal_frame, fg_color="transparent")
+        term_hdr.grid(row=0, column=0, sticky="ew", padx=12, pady=(8, 4))
+
+        ctk.CTkLabel(
+            term_hdr, text="📟 Terminal Log",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=TEXT_WHITE
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            term_hdr, text="Clear",
+            width=60, height=24,
+            fg_color=BORDER_DARK, hover_color="#444444",
+            text_color=TEXT_GRAY, font=ctk.CTkFont(size=11),
+            command=self._clear_terminal
+        ).pack(side="right")
+
+        # Log textbox
+        self.terminal_box = ctk.CTkTextbox(
+            terminal_frame,
+            fg_color=BG_DARK,
+            text_color="#00e676",
+            font=ctk.CTkFont(family="Consolas", size=11),
+            corner_radius=8,
+            wrap="word",
+            state="disabled"
+        )
+        self.terminal_box.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+
+        # Register logger listener
+        from core.logger import get_logger
+        get_logger().add_listener(self._append_terminal)
+
+    def _append_terminal(self, msg: str):
+        def _do():
+            self.terminal_box.configure(state="normal")
+            self.terminal_box.insert("end", msg + "\n")
+            self.terminal_box.see("end")
+            self.terminal_box.configure(state="disabled")
+        self.after(0, _do)
+
+    def _clear_terminal(self):
+        self.terminal_box.configure(state="normal")
+        self.terminal_box.delete("1.0", "end")
+        self.terminal_box.configure(state="disabled")
 
     # ── Left Column ───────────────────────────────────────────────────────────
 
     def _build_left_column(self):
         left_frame = ctk.CTkFrame(self, fg_color="transparent")
-        left_frame.grid(row=0, column=0, sticky="nsew", padx=(16, 8), pady=16)
+        left_frame.grid(row=0, column=0, sticky="nsew", padx=(16, 8), pady=(16, 8))
         left_frame.grid_rowconfigure(2, weight=1)
         left_frame.grid_columnconfigure(0, weight=1)
 
@@ -173,7 +232,7 @@ class MainWindow(ctk.CTk):
 
     def _build_right_column(self):
         right_frame = ctk.CTkFrame(self, fg_color="transparent")
-        right_frame.grid(row=0, column=1, sticky="nsew", padx=(8, 16), pady=16)
+        right_frame.grid(row=0, column=1, sticky="nsew", padx=(8, 16), pady=(16, 8))
         right_frame.grid_rowconfigure(1, weight=1)
         right_frame.grid_columnconfigure(0, weight=1)
 
@@ -197,8 +256,13 @@ class MainWindow(ctk.CTk):
         )
         about_btn.pack(side="right")
 
-        # Main Settings Card
-        self.settings_card = ctk.CTkFrame(right_frame, fg_color=CARD_BG, corner_radius=12, border_color=BORDER_DARK, border_width=1)
+        # Main Settings Card — scrollable so Convert button never gets clipped
+        self.settings_card = ctk.CTkScrollableFrame(
+            right_frame, fg_color=CARD_BG, corner_radius=12,
+            border_color=BORDER_DARK, border_width=1,
+            scrollbar_button_color=BORDER_DARK,
+            scrollbar_button_hover_color="#444444",
+        )
         self.settings_card.grid(row=1, column=0, sticky="nsew")
         self.settings_card.grid_columnconfigure(0, weight=1)
 
@@ -283,6 +347,47 @@ class MainWindow(ctk.CTk):
         )
         self.verify_chk.pack(side="left")
 
+        # Output Folder Section
+        ctk.CTkLabel(
+            self.settings_card, text="[Output Folder]",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=TEXT_WHITE
+        ).pack(anchor="w", padx=16, pady=(4, 4))
+
+        out_row = ctk.CTkFrame(self.settings_card, fg_color="transparent")
+        out_row.pack(fill="x", padx=16, pady=(0, 8))
+
+        self.same_as_src_chk = ctk.CTkCheckBox(
+            out_row, text="Same as source",
+            variable=self.same_as_src,
+            text_color=TEXT_WHITE, fg_color=ACCENT_RED,
+            font=ctk.CTkFont(size=12),
+            command=self._on_same_as_src_toggled
+        )
+        self.same_as_src_chk.pack(side="left")
+
+        out_dir_row = ctk.CTkFrame(self.settings_card, fg_color="transparent")
+        out_dir_row.pack(fill="x", padx=16, pady=(0, 8))
+
+        self.out_dir_entry = ctk.CTkEntry(
+            out_dir_row,
+            textvariable=self.output_dir,
+            fg_color=BG_DARK, border_color=BORDER_DARK,
+            text_color=TEXT_WHITE, font=ctk.CTkFont(size=11),
+            state="disabled"
+        )
+        self.out_dir_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        self.out_dir_btn = ctk.CTkButton(
+            out_dir_row, text="Browse",
+            width=70, height=28,
+            fg_color=BORDER_DARK, hover_color="#444444",
+            text_color=TEXT_WHITE, font=ctk.CTkFont(size=11),
+            state="disabled",
+            command=self._browse_output_dir
+        )
+        self.out_dir_btn.pack(side="right")
+
         # Action Buttons Area
         act_row = ctk.CTkFrame(self.settings_card, fg_color="transparent")
         act_row.pack(fill="x", padx=16, pady=(12, 8))
@@ -322,20 +427,20 @@ class MainWindow(ctk.CTk):
                 ext = f".{get_extension(p)}"
                 if ext not in SUPPORTED_INPUT or p in existing:
                     continue
-                info = detect_file(p)
+                out = self.output_dir.get().strip() if not self.same_as_src.get() and self.output_dir.get().strip() else os.path.dirname(p)
+                job = ConversionJob(
+                    filepath=p,
+                    output_dir=out,
+                    target_format="CHD",        # placeholder; resolved after cache warms
+                    compression=self.compression.get(),
+                    verify=self.verify_after.get()
+                )
+                info = job.get_file_info()      # warms the cache immediately
                 valid = info.get("valid_targets", [])
                 if not valid:
                     log(f"[SKIP] {os.path.basename(p)} — no valid conversion targets")
                     continue
-
-                default_fmt = valid[0]
-                job = ConversionJob(
-                    filepath=p,
-                    output_dir=os.path.dirname(p),
-                    target_format=default_fmt,
-                    compression=self.compression.get(),
-                    verify=self.verify_after.get()
-                )
+                job.target_format = valid[0]
                 self.jobs.append(job)
                 existing.add(p)
                 added_any = True
@@ -390,7 +495,7 @@ class MainWindow(ctk.CTk):
 
             for i, job in enumerate(self.jobs):
                 is_selected = (i == self.selected_job_index)
-                bg_col = "#202e52" if is_selected else BG_DARK
+                bg_col     = "#202e52" if is_selected else BG_DARK
                 border_col = ACCENT_RED if is_selected else BORDER_DARK
 
                 item_frame = ctk.CTkFrame(
@@ -404,9 +509,18 @@ class MainWindow(ctk.CTk):
                 item_frame.pack(fill="x", pady=3)
                 item_frame.pack_propagate(False)
 
-                info = detect_file(job.filepath)
-                fmt = info.get("format", "ISO")
+                # ── use cached info — no disk read here ──────────────────────
+                info     = job.get_file_info()
+                fmt      = info.get("format", "ISO")
                 badge_bg = info.get("badge_color", ACCENT_RED)
+
+                # Status colour overlay
+                status_colors = {
+                    "Done":       GREEN_DONE,
+                    "Failed":     RED_FAIL,
+                    "Converting": ACCENT_RED,
+                }
+                status_color = status_colors.get(job.status)
 
                 # Icon
                 icon = "📀" if fmt == "ISO" else "💿" if fmt in ("BIN", "CUE") else "📦"
@@ -419,18 +533,54 @@ class MainWindow(ctk.CTk):
                 ctk.CTkLabel(
                     item_frame, text=filename,
                     font=ctk.CTkFont(size=12, weight="bold" if is_selected else "normal"),
-                    text_color=TEXT_WHITE, anchor="w", width=180
+                    text_color=TEXT_WHITE, anchor="w", width=140
                 ).pack(side="left", padx=4)
+
+                # Per-job Progress Bar
+                job_progress_bar = ctk.CTkProgressBar(
+                    item_frame,
+                    fg_color=BG_DARK,
+                    progress_color=ACCENT_RED,
+                    height=6,
+                    width=70
+                )
+                job_progress_bar.pack(side="left", padx=4)
+                prog_val = job.progress / 100.0 if job.progress > 1.0 else job.progress
+                job_progress_bar.set(max(0.0, min(1.0, prog_val)))
+
+                # ── X remove button (right-most) ─────────────────────────────
+                if not self._converting:
+                    remove_btn = ctk.CTkButton(
+                        item_frame, text="✕",
+                        width=24, height=24,
+                        fg_color="transparent",
+                        hover_color="#3a1a1a",
+                        text_color=TEXT_GRAY,
+                        font=ctk.CTkFont(size=11),
+                        command=lambda idx=i: self._remove_job(idx)
+                    )
+                    remove_btn.pack(side="right", padx=(2, 8))
 
                 # Badge
                 badge = ctk.CTkLabel(
                     item_frame, text=f" {fmt} ",
                     font=ctk.CTkFont(size=10, weight="bold"),
-                    fg_color=badge_bg, text_color=TEXT_WHITE, corner_radius=4
+                    fg_color=status_color if status_color else badge_bg,
+                    text_color=TEXT_WHITE, corner_radius=4
                 )
-                badge.pack(side="right", padx=(4, 10))
+                badge.pack(side="right", padx=(4, 4))
 
-                # Bind click selection
+                # Status label if converting/done/failed
+                if job.status != "Queued":
+                    status_lbl = ctk.CTkLabel(
+                        item_frame,
+                        text=job.status,
+                        font=ctk.CTkFont(size=10),
+                        text_color=status_color or TEXT_GRAY,
+                    )
+                    status_lbl.pack(side="right", padx=(0, 4))
+
+                # Bind click → select
                 for w in (item_frame, badge):
                     w.bind("<Button-1>", lambda e, idx=i: self._select_job(idx))
                     w.configure(cursor="hand2")
@@ -440,6 +590,11 @@ class MainWindow(ctk.CTk):
         for child in self.target_buttons_frame.winfo_children():
             child.destroy()
 
+        # Clear extra dynamic widgets in info_card
+        for child in self.info_card.winfo_children():
+            if child not in (self.info_icon_title, self.info_meta):
+                child.destroy()
+
         if self.selected_job_index is None or self.selected_job_index >= len(self.jobs):
             self.info_icon_title.configure(text="📀 No File Selected")
             self.info_meta.configure(text="Select or drop a file to configure conversion")
@@ -448,7 +603,7 @@ class MainWindow(ctk.CTk):
             return
 
         job = self.jobs[self.selected_job_index]
-        info = detect_file(job.filepath)
+        info = job.get_file_info()              # cached — no disk read
 
         filename = os.path.basename(job.filepath)
         fmt      = info.get("format", "ISO")
@@ -458,6 +613,20 @@ class MainWindow(ctk.CTk):
         icon = "📀" if fmt == "ISO" else "💿" if fmt in ("BIN", "CUE") else "📦"
         self.info_icon_title.configure(text=f"{icon} {filename}")
         self.info_meta.configure(text=f"{size_str} • {fmt} • {platform}")
+
+        if fmt == "CHD":
+            chd_data = get_chd_info(job.filepath)
+            if chd_data:
+                chd_text = "\n".join(f"{k}: {v}" for k, v in chd_data.items())
+                chd_lbl = ctk.CTkLabel(
+                    self.info_card,
+                    text=chd_text,
+                    font=ctk.CTkFont(family="Consolas", size=10),
+                    text_color=TEXT_GRAY,
+                    anchor="w",
+                    justify="left"
+                )
+                chd_lbl.pack(fill="x", padx=12, pady=(0, 10))
 
         valid_targets = info.get("valid_targets", [])
         if not valid_targets:
@@ -503,6 +672,20 @@ class MainWindow(ctk.CTk):
         cmd_str = get_command_preview(fmt, target, filename)
         self.cmd_str_lbl.configure(text=cmd_str)
 
+    def _on_same_as_src_toggled(self):
+        if self.same_as_src.get():
+            self.out_dir_entry.configure(state="disabled")
+            self.out_dir_btn.configure(state="disabled")
+            self.output_dir.set("")
+        else:
+            self.out_dir_entry.configure(state="normal")
+            self.out_dir_btn.configure(state="normal")
+
+    def _browse_output_dir(self):
+        folder = filedialog.askdirectory()
+        if folder:
+            self.output_dir.set(folder)
+
     # ── Conversion Execution ─────────────────────────────────────────────────
 
     def _start_conversion(self):
@@ -515,22 +698,28 @@ class MainWindow(ctk.CTk):
         self.progress_bar.set(0)
 
         def run():
+            # Snapshot under lock so UI mutations (remove/clear) don't affect
+            # the running batch — jobs that were queued at start-time finish.
             with self._jobs_lock:
-                jobs_to_run = list(self.jobs)
+                jobs_to_run = [j for j in self.jobs if j.status == "Queued"]
 
+            total = len(jobs_to_run)
             for i, job in enumerate(jobs_to_run):
                 if self.converter._stop_flag:
                     break
 
                 job.verify = self.verify_after.get()
-                log(f"[BATCH] Starting conversion {i+1}/{len(jobs_to_run)}: {os.path.basename(job.filepath)}")
+                log(f"[BATCH] Starting conversion {i+1}/{total}: {os.path.basename(job.filepath)}")
 
                 ok = self.converter.convert(job)
 
+                # Refresh queue row on the main thread after each job
+                self.after(0, self._refresh_queue_ui)
+
                 if ok:
-                    log(f"[BATCH] Completed: {os.path.basename(job.filepath)}")
+                    log(f"[BATCH] ✅ Completed: {os.path.basename(job.filepath)}")
                 else:
-                    log(f"[BATCH] Failed: {os.path.basename(job.filepath)}")
+                    log(f"[BATCH] ❌ Failed: {os.path.basename(job.filepath)}")
 
             self._converting = False
             self.after(0, self._conversion_finished)
@@ -556,6 +745,7 @@ class MainWindow(ctk.CTk):
     def _on_progress(self, job: ConversionJob, pct: float):
         def _do():
             self.progress_bar.set(pct / 100.0)
+            self._refresh_queue_ui()
         self.after(0, _do)
 
     # ── Dialogs ───────────────────────────────────────────────────────────────
